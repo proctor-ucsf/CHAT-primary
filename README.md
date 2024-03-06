@@ -36,17 +36,13 @@ All analyses were run using R software version 4.3.2 on macOS Monterey using the
 
 `Running under: macOS Monterey 12.6`
 
-(TBD) In this repository we have created a Docker container and have used the `renv` package to archive the package versions so that you and reproduce the exact compute environment on an instance of R Studio Server, should you wish to do so.
-
 ### Installation Guide and Instructions for Use (Desktop)
 
 You can download and install R from CRAN: <https://cran.r-project.org>
 
 You can download and install RStudio from their website: <https://www.rstudio.com>
 
-All R packages required to run the analyses are sourced in the file `CHATON-primary-Config.R`.
-
-The installation time should be \< 10 minutes total on a typical desktop computer.
+All R packages required to run the analyses are sourced in the file `CHAT-primary-Config.R`.
 
 To reproduce all analyses in the paper, we recommend that you:
 
