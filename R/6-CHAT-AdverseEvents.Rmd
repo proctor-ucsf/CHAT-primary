@@ -1,0 +1,187 @@
+---
+title: "CHAT Trial Primary Analysis - Adverse Events"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+The report summarizes adverse events among infants <6 months of age in the CHAT trial.
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final population tracking dataset. This file was created by `0-NAITRE-primary-data-processing.R`.
+
+```{r load the data}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+
+# CHAT 0 IAES data
+iaes <- read_rds(here("data","CHAT_iaes_public.rds"))
+```
+
+# Adverse Events
+
+```{r}
+dae <- iaes %>%
+  mutate(any_AE = case_when(abdominal == 1 | vomiting == 1 | diarrhea == 1 | 
+                           constipation == 1 | hemorrhoids == 1 | rash == 1 ~ 1, 
+                           abdominal == 0 & vomiting == 0 & diarrhea == 0 & 
+                           constipation == 0 & hemorrhoids == 0 & rash == 0 ~ 0,
+                           TRUE ~ NA_real_)
+         ) %>%
+  mutate(
+    any_ae = factor(any_AE, levels=c(0,1), labels = c("No","Yes")),
+    abdominal = factor(abdominal, levels=c(0,1), labels = c("No","Yes")),
+    vomiting = factor(vomiting, levels=c(0,1), labels = c("No","Yes")),
+    diarrhea = factor(diarrhea, levels=c(0,1), labels = c("No","Yes")),
+    constipation = factor(constipation, levels=c(0,1), labels = c("No","Yes")),
+    hemorrhoids = factor(hemorrhoids, levels=c(0,1), labels = c("No","Yes")),
+    rash = factor(rash, levels=c(0,1), labels = c("No","Yes"))
+         )
+label(dae$any_ae) <- "Any non-serious adverse event"
+label(dae$abdominal) <- "Abdominal pain"
+label(dae$vomiting) <- "Vomiting"
+label(dae$diarrhea) <- "Diarrhea"
+label(dae$constipation) <- "Constipation"
+label(dae$hemorrhoids) <- "Hemorrhoids"
+label(dae$rash) <- "Rash"
+
+table1(~ any_ae + abdominal + vomiting + diarrhea + constipation + hemorrhoids + rash | tx, data = dae )
+```
+
+# AE risk difference
+
+```{r, warning= FALSE, message = FALSE}
+#--------------------------
+# pivot the AE symptoms to
+# long format
+#--------------------------
+ae_col <- c("any_ae","abdominal","vomiting","diarrhea","constipation","hemorrhoids","rash")
+d_ael <- dae %>% 
+  group_by(clusterid_public,childid_ae_public,tx) %>%
+  dplyr::select(clusterid_public,childid_ae_public,tx,ae_col) %>%
+  # reshape longer to make it easier to iterate the analysis
+  pivot_longer(cols=ae_col,names_to = "ae_name",values_to = "ae") %>%
+  # ensure treatment assignment is a factor
+  # order ae_name according to the order we'd like in the table
+  mutate(ae_name = factor(ae_name, 
+                          levels = c("any_ae",
+                                     "abdominal","vomiting",
+                                     "diarrhea","constipation",
+                                     "hemorrhoids","rash"),
+                          labels = c("Any non-serious adverse event", 
+                                     "Abdominal pain", "Vomiting", 
+                                     "Diarrhea", "Constipation", 
+                                     "Hemorrhoids", "Rash")))
+
+#--------------------------
+# summarize risk and risk
+# difference between arms
+# estimate the 95% CI using
+# a linear binomial model
+#--------------------------
+#--------------------------
+# summarize risk and risk
+# difference between arms
+# estimate the 95% CI using
+# a linear binomial model
+#--------------------------
+
+# get list of cluster IDs
+clids <- unique(dae$clusterid_public)
+ae_rd_ests <- foreach(aei = levels(d_ael$ae_name),.combine = rbind) %do% {
+  # subset to the particular ae
+  di <- d_ael %>% filter(ae_name == aei)
+  # estimate Ns by arm
+  dns <- di %>%
+    group_by(tx) %>%
+    summarize(N = n(), n = sum(ae=="Yes", na.rm = TRUE), .groups = "keep")
+  
+  #non-parametric bootstrap (1000 iterations) due to rare outcome
+  set.seed(202304)
+  # draw bootstrap sample of communities in the sample with replacement
+  bsamp <- matrix(sample(clids, size=length(clids)*1000, replace=TRUE), 
+                  nrow=length(clids), 
+                  ncol=1000)
+  
+  aeboot <- foreach(booti = 1:1000, .combine = rbind) %do% {
+    
+    # draw community bootstrap sample and summarize
+    dii <- left_join(data.frame(clusterid_public=bsamp[,booti]),di, by="clusterid_public")
+    ia_N <- length(dii$ae[dii$tx=="Azithromycin"])
+    ia_n <- sum(dii$ae[dii$tx=="Azithromycin"] == "Yes",na.rm=TRUE)
+    ip_N <- length(dii$ae[dii$tx=="Placebo"])
+    ip_n <- sum(dii$ae[dii$tx=="Placebo" ]== "Yes",na.rm=TRUE)
+    rd <- (ia_n/ia_N) - (ip_n/ip_N)
+    return(rd)
+    }
+  pct_a <- dns$n[2]/dns$N[2]
+  pct_p <- dns$n[1]/dns$N[1]
+  rd <- pct_a - pct_p
+  rd_ci <- quantile(aeboot,probs=c(0.025,0.975))
+  res <- data.frame(ae_name = aei, 
+                    N_a = dns$N[2], n_a = dns$n[2], pct_a = pct_a*100,
+                    N_p = dns$N[1], n_p = dns$n[1], pct_p = pct_p*100,
+                    rd, rd_se = NA_real_, rd_min95 = rd_ci[1], rd_max95 = rd_ci[2]) 
+  res
+}
+
+
+#--------------------------
+# print a summary table
+#--------------------------
+ae_rd_tab <- ae_rd_ests %>%
+  mutate(npct_a = paste0(n_a," (",sprintf("%1.2f",pct_a),"%)"),
+         npct_p = paste0(n_p," (",sprintf("%1.2f",pct_p),"%)"),
+         rd95ci = paste0(sprintf("%1.2f",rd*100),"% (", sprintf("%1.2f",rd_min95*100),"% to ",sprintf("%1.2f",rd_max95*100),"%)")
+         )
+rownames(ae_rd_tab)<-NULL
+knitr::kable(ae_rd_tab %>% select(ae_name,npct_a,npct_p,rd95ci),
+             align = "lrrr",
+             col.names = c("Adverse event", 
+                           paste0("Azithromycin N=", unique(ae_rd_ests$N_a), " n(%)"),
+                           paste0("Placebo N=", unique(ae_rd_ests$N_p), " n(%)"),
+                           #cat("Azithromycin\nN =", unique(ae_rd_ests$N_a), "\nn (%)"), 
+                           #cat("Placebo\nN =", unique(ae_rd_ests$N_p), "\nn (%)"), 
+                           "RD (95% CI) *"),
+             row.names = FALSE) %>%
+  kable_styling(bootstrap_options = "striped") %>%
+  footnote(symbol = c("RD: risk difference (azithromycin - placebo), in percentage points."))
+
+# save results for dsmc
+ae_rd_tab %>% 
+  write_csv(paste0(here(), "/DSMC/CHAT_ae_result.csv")) 
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+```

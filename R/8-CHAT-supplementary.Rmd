@@ -1,0 +1,261 @@
+---
+title: "CHAT Trial Primary Analysis - Supplementary Material"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+Summarize moved or unknown patient numbers by treatment group and phase in CHAT.
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here::here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final population tracking dataset. This file was created by `0-CHAT-primary-data-processing.R`.
+
+```{r load the data}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+# child-phase level data
+dchp <- read_rds(here("data","CHAT_child_phase_public.rds"))
+```
+
+```{r unmask treatment, echo = FALSE}
+#------------------------------
+# unmask treatment letters
+# Do not print this code to the
+# HTML file to avoid printing
+# the link between letters
+# and groups in the output file
+#------------------------------
+dchp1 <- dchp %>%
+  distinct(clusterid_public,childid_public,vital6,vital12,vital18,vital24,vital30,vital36,tx)
+```
+
+```{r, message=FALSE}
+#------------------------------
+# number of moved or unknown 
+# by phase
+#------------------------------
+moved_unknown_ph <- 
+  bind_rows(
+    dchp1 %>%
+      filter(vital6 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital6) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital6)
+    ,
+    dchp1 %>%
+      filter(vital12 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital12) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital12)
+    ,
+    dchp1 %>%
+      filter(vital18 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital18) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital18)
+    ,
+    dchp1 %>%
+      filter(vital24 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital24) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital24)
+    ,
+    dchp1 %>%
+      filter(vital30 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital30) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital30)
+    ,
+    dchp1 %>%
+      filter(vital36 %in% c("moved", "unknown")) %>%
+      group_by(tx,vital36) %>%
+      summarise(n=n()) %>%
+      spread(key = tx, value = n) %>%
+      rename(vital = vital36)
+    ) 
+#------------------------------
+# total number of children
+# who have been labeled as
+# moved or unknown
+#------------------------------
+moved_unknown_total <- dchp1 %>%
+  group_by(tx) %>%
+  summarise(
+    n_moved = sum(vital6 == "moved" |
+          vital12 == "moved" |
+          vital18 == "moved" |
+          vital24 == "moved" |
+          vital30 == "moved" |
+          vital36 == "moved", 
+          na.rm = T
+           ),
+    n_unknown = sum(vital6 == "unknown" |
+          vital12 == "unknown" |
+          vital18 == "unknown" |
+          vital24 == "unknown" |
+          vital30 == "unknown" |
+          vital36 == "unknown" , 
+          na.rm = T
+           ),
+    N = n_distinct(childid_public), 
+    moved = paste0(
+       n_moved,
+      "/", 
+      N, 
+      " (",
+      percent(n_moved/N, accuracy=0.1),
+      ")"), 
+    unknown = paste0(
+       n_unknown,
+      "/", 
+      N, 
+      " (",
+      percent(n_unknown/N, accuracy=0.1),
+      ")"), 
+    ) %>%
+  select(tx, moved, unknown) %>%
+  # transpose
+  t() %>% 
+  # convert 1st row (tx) to colnames 
+  row_to_names(1) %>%
+  # convert matrix output of transpose to df 
+  as.data.frame() %>%  
+  rownames_to_column("vital")
+
+```
+
+```{r}
+#------------------------------
+# test if the proportion of moved or unknown children 
+# differ significantly between the groups
+# Bootstrap
+#------------------------------
+dmk <- dchp1 %>%
+  mutate(moved = case_when(vital6 == "moved" |
+                             vital12 == "moved" |
+                             vital18 == "moved" |
+                             vital24 == "moved" |
+                             vital30 == "moved" |
+                             vital36 == "moved" ~ 1,
+                           TRUE ~ 0),
+         unknown = case_when(vital6 == "unknown" |
+                               vital12 == "unknown" |
+                               vital18 == "unknown" |
+                               vital24 == "unknown" |
+                               vital30 == "unknown" |
+                               vital36 == "unknown" ~ 1,
+                             TRUE ~ 0)
+  )
+
+# Define a function to calculate the test statistic
+calculate_test_statistic <- function(data) {
+  proportions <- data %>%
+    group_by(tx) %>%
+    dplyr::summarise(moved_proportion = mean(moved),
+              unknown_proportion = mean(unknown))
+  test_statistic_moved <- abs(proportions$moved_proportion[1] - proportions$moved_proportion[2])
+  test_statistic_unknown <- abs(proportions$unknown_proportion[1] - proportions$unknown_proportion[2])
+  return(list(test_statistic_moved, test_statistic_unknown))
+}
+
+# Set the number of iterations
+iterations <- 1000
+
+# Initialize a vector to store the test statistics
+test_statistic_moved <- vector("numeric", iterations)
+test_statistic_unknown <- vector("numeric", iterations)
+
+# Set the seed for reproducibility
+set.seed(123)
+
+# Perform the permutation/bootstrap test
+for (i in 1:iterations) {
+  # Generate a bootstrap sample by resampling clusters
+  bootstrap_sample <- sample(unique(dmk$clusterid_public), replace = TRUE)
+  
+  # Extract the data for the bootstrap sample
+  bootstrap_data <- dmk[dmk$clusterid_public %in% bootstrap_sample, ]
+  
+  # Calculate the test statistic for the bootstrap sample
+  test_statistic_moved[i] <- as.numeric(calculate_test_statistic(bootstrap_data)[1])
+  test_statistic_unknown[i] <- as.numeric(calculate_test_statistic(bootstrap_data)[2])
+}
+
+# Calculate the observed test statistic
+observed_statistic_moved <- as.numeric(calculate_test_statistic(dmk)[1])
+observed_statistic_unknown <- as.numeric(calculate_test_statistic(dmk)[2])
+
+# Calculate the p-value
+p_value_moved <- mean(test_statistic_moved >= observed_statistic_moved)
+p_value_unknown <- mean(test_statistic_unknown >= observed_statistic_unknown)
+
+```
+
+
+
+```{r render in a table}
+bind_rows(
+  moved_unknown_ph %>%
+    mutate(Placebo = as.character(Placebo),
+           Azithromycin = as.character(Azithromycin)),
+  moved_unknown_total %>%
+    mutate(vital = c("moved *", "unknown †"))
+) %>% 
+  select(vital, Azithromycin, Placebo) %>%
+  knitr::kable(format = "html", digits = 0, format.args = list(big.mark = ",")) %>%
+            kable_styling(bootstrap_options = "striped") %>%
+            pack_rows("Phase 6", 1, 2) %>%
+            pack_rows("Phase 12", 3, 4) %>% 
+            pack_rows("Phase 18", 5, 6) %>% 
+            pack_rows("Phase 24", 7, 8) %>% 
+            pack_rows("Phase 30", 9, 10) %>% 
+            pack_rows("Phase 36", 11, 12) %>% 
+            pack_rows("Overall", 13, 14) %>%
+  footnote(symbol = c(paste0("p-value = ", p_value_moved),
+                      paste0("p-value = ", p_value_unknown)))
+
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+```

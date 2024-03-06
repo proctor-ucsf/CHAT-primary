@@ -1,0 +1,157 @@
+---
+title: "CHAT Trial Primary Analysis - Baseline Balance"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+The report summarizes baseline (CHAT0) characteristics by group
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here("R","CHAT-primary-Config.R"))
+```
+
+
+# Load the data
+
+Load the final population tracking dataset. This file was created by `0-NAITRE-primary-data-processing.R`.
+
+```{r load the data}
+# precensus data
+precensus <- read_rds(here("data","CHAT_precensus_public.rds"))
+
+dch <- read_rds(here("data","CHAT_child_census_public.rds"))
+
+dch_wide <- read_rds(here("data","CHAT_child_census_wide_public.rds"))
+
+# child-phase level data
+dchp <- read_rds(here("data","CHAT_child_phase_public.rds"))
+  
+# cluster-phase level summaries
+dclp <- read_rds(here("data","CHAT_cluster_phase_public.rds"))
+
+# cluster-agecat level summaries
+dcla <- read_rds(here("data","CHAT_cluster_age_public.rds"))
+
+# cluster-level summaries
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+tx_alloc <- read_rds(here("data","CHAT_tx_alloc_public.rds"))
+```
+
+
+
+```{r process the data}
+# ----------
+# get chat 0 baseline data
+# ----------
+chc0 <- dchp %>%
+  filter(phase == "0to6" & age_months %in% 1:59 & vital0 == "alive") %>%
+  mutate(childSex = gender,
+         agecat = factor(agecat, 
+                         level = c("1-11 months", "12-23 months", "24-59 months")),
+         HDSS = factor(ifelse(clusterid_public %in% precensus$clusterid_public, 
+                              "Non-HDSS", "HDSS"),
+                           level = c("HDSS", "Non-HDSS"))
+         )
+
+```
+
+# CHAT 0 Baseline Characteristics
+
+```{r, message=FALSE}
+chc0 %>%
+  group_by(tx) %>%
+  summarise(n_cluster = n_distinct(clusterid_public),
+            n_child = n_distinct(childid_public)
+            ) %>%
+  kable(format = "html", 
+        col.names = c("Treatment", "Number of clusters", "Number of children")
+        ) %>%
+  kable_styling(bootstrap_options = "striped")
+
+chc0 %>%
+  group_by(tx, clusterid_public, HDSS) %>%
+  summarise(n_child = n_distinct(childid_public)) %>%
+  ungroup() %>%
+  group_by(tx) %>%
+  summarise(
+    mean_n_child = round(mean(n_child), 1),
+    sd_n_child = round(sd(n_child), 1),
+    median_n_child = median(n_child),
+    Q1 = quantile(n_child, 0.25),
+    Q3 = quantile(n_child, 0.75),
+    HDSS = sum(HDSS == "HDSS"),
+    HDSS_percent = round(100 * HDSS/n(), 1)
+  ) %>%
+  mutate(
+    summary_stats = paste0(
+      "Mean: ", mean_n_child, " (SD: ", sd_n_child, "), ",
+      "Median: ", median_n_child, ", ",
+      "IQR: [", Q1, ", ", Q3, "]"
+    ), 
+    HDSS = paste0(HDSS, " (", 
+                  HDSS_percent, "%)")
+  ) %>%
+  select(tx, summary_stats, HDSS) %>%
+  kable(
+    format = "html", 
+    col.names = c("Treatment", "Number of children per cluster (Summary Stats)", "HDSS clusters")
+  ) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+
+```{r}
+# summarize Sex, Age, MUAC, and HDSS
+render.median.IQR <- function(x, ...) {
+  if(is.numeric(x)) {
+    return(c('', 
+             `Mean (SD)` = sprintf("%s (%s)", 
+                                   round(mean(x, na.rm = T), 2), 
+                                   round(sd(x, na.rm = T), 2)),
+             `Median [IQR]` = sprintf("%s [%s, %s]", 
+                                      median(x, na.rm = T), 
+                                      quantile(x, 0.25, na.rm = T), 
+                                      quantile(x, 0.75, na.rm = T)))
+           )
+  } else {
+    return(table1::render.default(x, ...))
+  }
+}
+label(chc0$childSex) <- "Sex"
+label(chc0$agecat)   <- "Age"
+
+table1(~ childSex + agecat + muac + HDSS | tx, data=chc0, render = render.median.IQR)
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+
+

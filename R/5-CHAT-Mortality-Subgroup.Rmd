@@ -1,0 +1,1104 @@
+---
+title: "CHAT Trial Primary Analysis - Subgroup Mortality"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+The report summarizes subgroups mortality outcomes in the CHAT trial.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here::here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final population tracking dataset. This file was created by `0-CHAT-final-data-processing.R`.
+
+
+```{r load the data}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+dch <- read_rds(here("data","CHAT_child_census_public.rds"))
+
+# child-phase level data
+dchp <- read_rds(here("data","CHAT_child_phase_public.rds"))
+  
+# cluster-phase level summaries
+dclp <- read_rds(here("data","CHAT_cluster_phase_public.rds"))
+
+# cluster-phase-year level summaries
+dclpy <- read_rds(here("data","CHAT_cluster_phaseyear_public.rds"))
+
+# cluster-age level summaries
+dcla <- read_rds(here("data","CHAT_cluster_age_public.rds"))
+
+# cluster-gender level summaries
+dclg <- read_rds(here("data","CHAT_cluster_gender_public.rds"))
+
+# cluster-level summaries
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+# Treatment allocation
+tx_alloc <- read_rds(here("data","CHAT_tx_alloc_public.rds"))
+```
+
+
+```{r process the data}
+#------------------------------
+# convert person-days into
+# person-years for convenience
+#------------------------------
+dchp2 <- dchp %>%
+  mutate(person_years = person_days/365.25)
+
+dclp2 <- dclp %>%
+  mutate(person_years = person_days/365.25)
+
+dclpy2 <- dclpy %>%
+  mutate(person_years = person_days/365.25)
+
+dcla2 <- dcla %>%
+  mutate(person_years = person_days/365.25)
+
+dclg2 <- dclg %>%
+  mutate(person_years = person_days/365.25)
+
+dcl2 <- dcl %>%
+  mutate(person_years = person_days/365.25)
+
+#------------------------------
+# for individual child-phase data:
+#
+# limit to child-phases where children 
+# were at risk and were not lost
+#------------------------------
+table(dchp2$atrisk, dchp2$lost)
+dchp3 <- dchp2 %>%
+  filter(atrisk == 1, lost == 0) %>%
+  mutate(phase_year = case_when(
+    phase %in% c("0to6","6to12") ~ "0to12",
+    phase %in% c("12to18","18to24") ~ "12to24",
+    phase %in% c("24to30","30to36") ~ "24to36"),
+    phase_year = factor(phase_year)
+         )
+
+#------------------------------
+# for the cluster-phase-level data
+# and cluster-level summaries:
+# 
+# tabulate and then 
+# drop clusters with no person time
+#------------------------------
+dclp3 <- dclp2 %>%
+  filter(person_years > 0)
+
+dclpy3 <- dclpy2 %>%
+  filter(person_years > 0)
+
+dcla3 <- dcla2 %>%
+  filter(person_years > 0)
+
+dclg3 <- dclg2 %>%
+  filter(person_years > 0)
+
+dcl3 <- dcl2 %>%
+  filter(person_years > 0)
+
+#------------------------------
+# estimate the cluster-level
+# mortality rate
+#------------------------------
+dcl3$mrate <- dcl3$ndeaths/dcl3$person_years
+
+#------------------------------
+# internal verfication check:
+# ensure number of deaths match
+# in the individual child-phase
+# and cluster level summary
+#------------------------------
+sum(dchp3$death)
+sum(dcl3$ndeaths)
+```
+
+# Summary tables
+
+## 1. Age category
+
+```{r summarize deaths and person years by age category}
+#-------------------------------
+# summary of deaths and person-time
+#-------------------------------
+agetable <- dcla3 %>%
+  # tabulate deaths and person time by group
+  group_by(agecat, tx) %>%
+  summarise(ndeaths = sum(ndeaths), py = sum(person_years), .groups = "keep") %>%
+  # calculate cumulative mortality rate per 1000
+  mutate(mrate= (ndeaths / py)*1000) %>%
+  pivot_wider(names_from=tx, values_from=c("ndeaths", "py", "mrate")) %>%
+  dplyr::select(agecat, ndeaths_Placebo, py_Placebo, mrate_Placebo,
+         ndeaths_Azithromycin, py_Azithromycin, mrate_Azithromycin
+         )
+
+# render table
+knitr::kable(agetable, 
+             digits = c(0,0,0,2,0,0,2,0,3,0,3,0,3),
+             format.args = list(big.mark = ","),
+             col.names = c("Age Category", "N Deaths", "Person-Years", "Rate per 1,000 PY", 
+                           "N Deaths", "Person-Years", "Rate per 1,000 PY"
+                           ),
+             caption = "Incidence rate of all-cause mortality and incidence rate ratio (IRR) for comparison between groups."
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE) %>%
+  add_header_above(c(" " = 1, "Placebo" = 3,  "Azithromycin" = 3)) 
+
+```
+
+## 2. Gender
+
+```{r summarize deaths and person years by gender}
+#-------------------------------
+# summary of deaths and person-time
+#-------------------------------
+gendertable <- dclg3 %>%
+  # tabulate deaths and person time by group
+  group_by(gender, tx) %>%
+  summarise(ndeaths = sum(ndeaths), py = sum(person_years), .groups = "keep") %>%
+  # calculate cumulative mortality rate per 1000
+  mutate(mrate= (ndeaths / py)*1000) %>%
+  pivot_wider(names_from=tx, values_from=c("ndeaths", "py", "mrate")) %>%
+  dplyr::select(gender, ndeaths_Placebo, py_Placebo, mrate_Placebo,
+         ndeaths_Azithromycin, py_Azithromycin, mrate_Azithromycin
+         )
+
+# render table
+knitr::kable(gendertable, 
+             digits = c(0,0,0,2,0,0,2,0,3,0,3,0,3),
+             format.args = list(big.mark = ","),
+             col.names = c("Gender", "N Deaths", "Person-Years", "Rate per 1,000 PY", 
+                           "N Deaths", "Person-Years", "Rate per 1,000 PY"
+                           ),
+             caption = "Incidence rate of all-cause mortality and incidence rate ratio (IRR) for comparison between groups."
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE) %>%
+  add_header_above(c(" " = 1, "Placebo" = 3,  "Azithromycin" = 3)) 
+
+```
+
+## 3. Phase - aggregate by entire years
+
+```{r summarize deaths and person years by time phase}
+#-------------------------------
+# summary of deaths and person-time
+#-------------------------------
+phasetable <- dclpy3 %>%
+  # tabulate deaths and person time by group
+  group_by(phase_year, tx) %>%
+  summarise(ndeaths = sum(ndeaths), py = sum(person_years), .groups = "keep") %>%
+  # calculate cumulative mortality rate per 1000
+  mutate(mrate= (ndeaths / py)*1000) %>%
+  pivot_wider(names_from=tx, values_from=c("ndeaths", "py", "mrate")) %>%
+  dplyr::select(phase_year, ndeaths_Placebo, py_Placebo, mrate_Placebo,
+         ndeaths_Azithromycin, py_Azithromycin, mrate_Azithromycin
+         )
+
+# render table
+knitr::kable(phasetable, 
+             digits = c(0,0,0,2,0,0,2,0,3,0,3,0,3),
+             format.args = list(big.mark = ","),
+             col.names = c("Phase", "N Deaths", "Person-Years", "Rate per 1,000 PY", 
+                           "N Deaths", "Person-Years", "Rate per 1,000 PY"
+                           ),
+             caption = "Incidence rate of all-cause mortality and incidence rate ratio (IRR) for comparison between groups."
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE) %>%
+  add_header_above(c(" " = 1, "Placebo" = 3,  "Azithromycin" = 3)) 
+```
+
+
+# Rate differences by age
+
+Estimate rate differences within strata.  Estimate the rate difference and its 95% CI non-parametrically by bootstrap re-sampling clusters and re-estimating the age-specific rates
+
+```{r age differences by age}
+#-------------------------------
+# bootstrap resample clusters with replacement
+#
+# within each bootstrap replicate, 
+# estimate the age-stratified
+# Incidence Rate Ratio (IRR) and the
+# Incidence Rate Difference
+#
+# summarize the percentile-based
+# 95% CI for the IRR and IRD
+#-------------------------------
+
+# Define the bootstrap function to calculate IRR and IRD
+IRR_IRD <- function(d) {
+  az_person_years <- sum(d$person_years[d$tx == "Azithromycin"])
+  pl_person_years <- sum(d$person_years[d$tx == "Placebo"])
+  az_deaths <- sum(d$ndeaths[d$tx == "Azithromycin"])
+  pl_deaths <- sum(d$ndeaths[d$tx == "Placebo"])
+  az_incidence <- 1000*az_deaths / az_person_years
+  pl_incidence <- 1000*pl_deaths / pl_person_years
+  irr <- az_incidence / pl_incidence
+  ird <- (az_incidence - pl_incidence)
+  return(list(irr = irr, ird = ird, az_incidence = az_incidence, pl_incidence = pl_incidence))
+}
+
+# Create an empty data frame to store the results
+npresult_age <- data.frame(
+  agecat = character(),
+  az_incidence = double(),
+  az_lower = double(),
+  az_upper = double(),
+  pl_incidence = double(),
+  pl_lower = double(),
+  pl_upper = double(),
+  irr = character(),
+  ird = character()
+)
+
+# Set the seed for reproducibility
+set.seed(2023)
+
+# Set the number of bootstrap replicates
+B <- 10000
+
+# Loop through each stratum
+for (a in unique(dcla3$agecat)) {
+  # Subset the data to the current stratum
+  dcla3_stratum <- dcla3 %>% filter(agecat == a)
+  
+  # Create a data frame to store the bootstrap results
+  boot_results <- data.frame(
+    replicate = integer(),
+    az_incidence = double(),
+    pl_incidence = double(),
+    irr = double(),
+    ird = double()
+  )
+
+  # Perform the bootstrap
+  for (i in 1:B) {
+    # Sample with replacement from the dataset
+    bootstrap_sample <- dcla3_stratum[sample(nrow(dcla3_stratum), replace = TRUE), ]
+    # Calculate the IRR and IRD for the bootstrap sample
+    results <- IRR_IRD(bootstrap_sample)
+    # Store the results in the data frame
+    boot_results[i, ] <- c(i, results$az_incidence, results$pl_incidence, results$irr, results$ird)
+  }
+
+  # Calculate the estimated IRR and IRD
+  est_irr <- IRR_IRD(dcla3_stratum)$irr
+  est_ird <- IRR_IRD(dcla3_stratum)$ird
+  est_az_incidence <- IRR_IRD(dcla3_stratum)$az_incidence
+  est_pl_incidence <- IRR_IRD(dcla3_stratum)$pl_incidence
+  
+  # Calculate the confidence interval
+  boot_irr_ci <- quantile(boot_results$irr, c(0.025, 0.975))
+  boot_ird_ci <- quantile(boot_results$ird, c(0.025, 0.975))
+  boot_azir_ci <- quantile(boot_results$az_incidence, c(0.025, 0.975))
+  boot_plir_ci <- quantile(boot_results$pl_incidence, c(0.025, 0.975))
+
+  # Print the estimated IRR and the confidence interval
+  cat("\n For age group", a, ": The non-parametric estimate of the IRR and its bootstrap 95% CI is:\n",
+      "IRR =", sprintf("%1.2f",est_irr),"(",sprintf("%1.2f",boot_irr_ci[1]),"to",sprintf("%1.2f",boot_irr_ci[2]),")\n",
+      "IRD =", sprintf("%1.2f",est_ird),"(",sprintf("%1.2f",boot_ird_ci[1]),"to",sprintf("%1.2f",boot_ird_ci[2]),")")
+
+  # Add the results to the data frame
+  npresult_age <- rbind(npresult_age, 
+                        data.frame(agecat = a,
+                                   az_incidence = est_az_incidence, 
+                                   az_lower = as.numeric(boot_azir_ci[1]),
+                                   az_upper = as.numeric(boot_azir_ci[2]),
+                                   pl_incidence = est_pl_incidence, 
+                                   pl_lower = as.numeric(boot_plir_ci[1]),
+                                   pl_upper = as.numeric(boot_plir_ci[2]),
+                                   irr_est = est_irr,
+                                   irr_lower = boot_irr_ci[1],
+                                   irr_upper = boot_irr_ci[2],
+                                   ird_est = est_ird,
+                                   ird_lower = boot_ird_ci[1],
+                                   ird_upper = boot_ird_ci[2],
+                                   irr = paste0(sprintf("%1.2f",est_irr), " (", 
+                                                sprintf("%1.2f",boot_irr_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_irr_ci[2]), ")"), 
+                                   ird = paste0(sprintf("%1.2f",est_ird), " (", 
+                                                sprintf("%1.2f",boot_ird_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_ird_ci[2]), ")") 
+                                   )
+                        )
+}
+
+knitr::kable(npresult_age %>%
+               dplyr::select(agecat, irr, ird), 
+             col.names = c("Age Category", "IRR (Non-parametric 95% CI)", "IRD (Non-parametric 95% CI)"
+                           ),
+             caption = "Incidence rate ratio (IRR) and Incidence rate difference (IRD) within age category strata"
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE)
+
+```
+
+```{r figures of the rates by age group}
+# Create the plot
+npresult_age_long<-npresult_age %>%
+  dplyr::select(-irr, -ird) %>%
+  pivot_longer(cols = c(az_incidence, az_lower, az_upper, pl_incidence, pl_lower, pl_upper),
+               names_to = c("tx", ".value"),
+               names_pattern = "(\\w+)_(\\w+)")  %>%
+  mutate(tx = factor(tx, levels=c("az", "pl"), labels = c("Azithromycin", "Placebo")))
+
+plot_age <- ggplot(data=npresult_age_long, aes(y=tx, x=incidence, xmin=lower, xmax=upper)) +
+  geom_pointrange(aes(col=tx), lwd=0.8) +
+  geom_point(data=npresult_age_long %>% filter(tx=="Placebo"),pch=19,color="white",size=2) +
+  scale_x_continuous(breaks = seq(0,16,by=2)) +
+  scale_color_manual(values = cbpal[c(8,1)]) + 
+  facet_grid(agecat~.)  +
+  coord_cartesian(xlim=c(0,16)) +
+  labs(title="Mortality Rates by Age Group", x="Mortality Rate per 1,000 PY", y="") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+
+plot_age_irr <- npresult_age %>%
+  mutate(agecat = factor(agecat, levels=c("1-11 months","12-23 months","24-59 months"), 
+                         labels = c("1-11 months old","12-23 months old","24-59 months old"))) %>%
+  ggplot(data=., aes(x=agecat, y=irr_est, ymin=irr_lower, ymax=irr_upper))+
+  geom_pointrange(aes(), lwd=0.8, col="#999999") +
+  scale_y_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  geom_hline(yintercept=1, linetype="dashed", size=1, col="grey") +
+  labs(title="Incidence rate ratio (IRR) by age group", x="", y="IRR") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+
+plot_age_irr_horizontal <- npresult_age %>%
+  mutate(agecat = factor(agecat, levels=c("24-59 months", "12-23 months", "1-11 months"), 
+                         labels = c("24-59 months old", "12-23 months old", "1-11 months old"))) %>%
+  ggplot(data=., aes(y=agecat, x=irr_est, xmin=irr_lower, xmax=irr_upper))+
+  geom_vline(xintercept=1, linetype="dashed", size=1.5, col="grey40") +
+  geom_pointrange(aes(), lwd=1, col="black") +
+  scale_x_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  labs( y="", x="IRR") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.x = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=14),
+        axis.text.y = element_blank(),
+        axis.title = element_text(size=14),
+        panel.border = element_blank() # Removes the box around the figures
+        )
+
+# save plot
+ggsave(plot_age_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_age_plot.jpeg"),
+       width=3, height=4)
+
+# save plot
+ggsave(plot_age_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_age_plot.eps"),
+       width=3, height=4)
+```
+
+
+## Test of additive interaction by age
+
+For a formal test of interaction on the additive scale, use a pooled binomial regression with identity link and robust SEs clustered at the community level to estimate the statistical significance of the interaction using a Wald test of nested models that include/exclude the interaction between treatment and age category.
+
+```{r rate difference pooled logistic model}
+#-------------------------------
+# fit overall rate difference model
+#
+# note: the rates are per 6-month
+# period, so rates and rate differences
+# per year are coefficients times 2
+#
+# this model is not used in the
+# formal test of interaction but
+# is important just for ensuring
+# that the rate estimates from the
+# model are close/identical
+# to the empircal rates and 
+# rate difference estimated from
+# the raw data
+#-------------------------------
+rd_all <- glm(death ~ tx, data=dchp3, family=binomial(link="identity"))
+( rd_all_rb <- coeftest(rd_all, vcov.=vcovCL(rd_all,cluster=dchp3$clusterid_public)) )
+```
+
+```{r test for age interaction on the additive scale}
+#-------------------------------
+# rate difference model with
+# interaction by age category
+#-------------------------------
+rd_age <- glm(death ~ tx + agecat, data=dchp3, family=binomial(link="identity"))
+( rd_age_rb <- coeftest(rd_age, vcov.=vcovCL(rd_age,cluster=dchp3$clusterid_public)) )
+
+rd_agetx <- glm(death ~ tx + agecat + tx:agecat, data=dchp3, family=binomial(link="identity"))
+( rd_agetx_rb <- coeftest(rd_agetx, vcov.=vcovCL(rd_agetx,cluster=dchp3$clusterid_public)) )
+
+#-------------------------------
+# conduct a Wald test for additive
+# interaction (homogeneity of the rate differences)
+# using the nested models - 
+# one including the interaction terms and one without them
+#-------------------------------
+( wald_test_agetx <- waldtest(rd_age,rd_agetx))
+```
+
+```{r permutation test for interaction on the additive scale age}
+#-------------------------------
+# conduct a permutation test
+# of the Wald statistic
+# for a final P-value
+# this will mean permuting cluster
+# level treatements and then
+# repeating the nested model fits
+# in each permutation, storing
+# the F-statistic from the 
+# Wald test. Then estimating
+# the permutation P-value from
+# the null distribution of the 
+# F-statistic
+#-------------------------------
+
+permute_walt_a <- function(i){
+  # Permute the treatment at the cluster level 
+  dtx <- dchp3 %>% select(clusterid_public, tx) %>% 
+    group_by(clusterid_public) %>% slice(1) %>% ungroup() %>%    
+    mutate(tx_perm = sample(tx, replace=FALSE))  
+  di <- left_join(dtx, dchp3, by=c("clusterid_public","tx"))
+  
+  # Fit the nested models using the permuted data
+  rd_age_perm <- glm(death ~ tx_perm + agecat, data = di, family = binomial(link = "identity"))
+  rd_agetx_perm <- glm(death ~ tx_perm + agecat + tx_perm:agecat, data = di, family = binomial(link = "identity"))
+  
+  # extract and save the F stat
+  waldtest(rd_age_perm, rd_agetx_perm)$`F`[2]
+}
+
+# Set the number of permutations to use
+N <- 1000
+
+# Create an empty vector to store the permutation test statistics
+wald_perm_a <- numeric(N)
+
+for (i in 1:N) {
+  # Set the seed for reproducibility
+  set.seed(i)
+  # Calculate the Wald test statistic for the permuted models
+  wald_perm_a[i] <- permute_walt_a(i)
+ # Print the iteration number when i is a multiple of 10
+  if (i %% 50 == 0) {
+    cat("Iteration:", i, "\n")
+  }
+}
+
+  
+# Calculate the permutation P-value
+pval_perm_age <- sum(wald_perm_a >= wald_test_agetx$`F`[2]) / length(wald_perm_a)
+
+```
+
+```{r}
+# Print the results
+cat("Permutation P-value:", pval_perm_age, "\n")
+```
+
+# Rate differences by gender
+
+Estimate rate differences within strata.  Estimate the rate difference and its 95% CI non-parametrically by bootstrap re-sampling clusters and re-estimating the gender-specific rates
+
+```{r rate differences by gender}
+#-------------------------------
+# bootstrap resample clusters with replacement
+#
+# within each bootstrap replicate, 
+# estimate the gender-stratified
+# Incidence Rate Ratio (IRR) and the
+# Incidence Rate Difference
+#
+# summarize the percentile-based
+# 95% CI for the IRR and IRD
+#-------------------------------
+
+# Create an empty data frame to store the results
+npresult_gender <- data.frame(
+  gender = character(),
+  az_incidence = double(),
+  az_lower = double(),
+  az_upper = double(),
+  pl_incidence = double(),
+  pl_lower = double(),
+  pl_upper = double(),
+  irr = character(),
+  ird = character()
+)
+
+# Set the seed for reproducibility
+set.seed(2023)
+
+# Set the number of bootstrap replicates
+B <- 10000
+
+# Loop through each stratum
+for (g in unique(dclg3$gender)) {
+  # Subset the data to the current stratum
+  dclg3_stratum <- dclg3 %>% filter(gender == g)
+  
+  # Create a data frame to store the bootstrap results
+  boot_results <- data.frame(
+    replicate = integer(),
+    az_incidence = double(),
+    pl_incidence = double(),
+    irr = double(),
+    ird = double()
+  )
+
+  # Perform the bootstrap
+  for (i in 1:B) {
+    # Sample with replacement from the dataset
+    bootstrap_sample <- dclg3_stratum[sample(nrow(dclg3_stratum), replace = TRUE), ]
+    # Calculate the IRR and IRD for the bootstrap sample
+    results <- IRR_IRD(bootstrap_sample)
+    # Store the results in the data frame
+    boot_results[i, ] <- c(i, results$az_incidence, results$pl_incidence, results$irr, results$ird)
+  }
+
+  # Calculate the estimated IRR and IRD
+  est_irr <- IRR_IRD(dclg3_stratum)$irr
+  est_ird <- IRR_IRD(dclg3_stratum)$ird
+  est_az_incidence <- IRR_IRD(dclg3_stratum)$az_incidence
+  est_pl_incidence <- IRR_IRD(dclg3_stratum)$pl_incidence
+  
+  # Calculate the confidence interval
+  boot_irr_ci <- quantile(boot_results$irr, c(0.025, 0.975))
+  boot_ird_ci <- quantile(boot_results$ird, c(0.025, 0.975))
+  boot_azir_ci <- quantile(boot_results$az_incidence, c(0.025, 0.975))
+  boot_plir_ci <- quantile(boot_results$pl_incidence, c(0.025, 0.975))
+
+  # Print the estimated IRR and the confidence interval
+  cat("\n For gender", g, ": The non-parametric estimate of the IRR and its bootstrap 95% CI is:\n",
+      "IRR =", sprintf("%1.2f",est_irr),"(",sprintf("%1.2f",boot_irr_ci[1]),"to",sprintf("%1.2f",boot_irr_ci[2]),")\n",
+      "IRD =", sprintf("%1.2f",est_ird),"(",sprintf("%1.2f",boot_ird_ci[1]),"to",sprintf("%1.2f",boot_ird_ci[2]),")")
+
+  # Add the results to the data frame
+  npresult_gender <- rbind(npresult_gender, 
+                        data.frame(gender = g,
+                                   az_incidence = est_az_incidence, 
+                                   az_lower = as.numeric(boot_azir_ci[1]),
+                                   az_upper = as.numeric(boot_azir_ci[2]),
+                                   pl_incidence = est_pl_incidence, 
+                                   pl_lower = as.numeric(boot_plir_ci[1]),
+                                   pl_upper = as.numeric(boot_plir_ci[2]),
+                                   irr_est = est_irr,
+                                   irr_lower = boot_irr_ci[1],
+                                   irr_upper = boot_irr_ci[2],
+                                   ird_est = est_ird,
+                                   ird_lower = boot_ird_ci[1],
+                                   ird_upper = boot_ird_ci[2],
+                                   irr = paste0(sprintf("%1.2f",est_irr), " (", 
+                                                sprintf("%1.2f",boot_irr_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_irr_ci[2]), ")"), 
+                                   ird = paste0(sprintf("%1.2f",est_ird), " (", 
+                                                sprintf("%1.2f",boot_ird_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_ird_ci[2]), ")") 
+                                   )
+                        )
+}
+
+knitr::kable(npresult_gender %>%
+               dplyr::select(gender, irr, ird), 
+             col.names = c("Gender", "IRR (Non-parametric 95% CI)", "IRD (Non-parametric 95% CI)"
+                           ),
+             caption = "Incidence rate ratio (IRR) and Incidence rate difference (IRD) within gender category strata"
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE)
+
+```
+
+```{r figures of the rates by gender group}
+# Create the plot
+npresult_gender_long<-npresult_gender %>%
+  dplyr::select(-irr, -ird) %>%
+  pivot_longer(cols = c(az_incidence, az_lower, az_upper, pl_incidence, pl_lower, pl_upper),
+               names_to = c("tx", ".value"),
+               names_pattern = "(\\w+)_(\\w+)")  %>%
+  mutate(tx = factor(tx, levels=c("az", "pl"), labels = c("Azithromycin", "Placebo")))
+
+plot_gender <- ggplot(data=npresult_gender_long, aes(y=tx, x=incidence, xmin=lower, xmax=upper)) +
+  geom_pointrange(aes(col=tx), lwd=0.8) +
+  geom_point(data=npresult_gender_long %>% filter(tx=="Placebo"),pch=19,color="white",size=2) +
+  scale_x_continuous(breaks = seq(0,16,by=2)) +
+  scale_color_manual(values = cbpal[c(8,1)]) + 
+  facet_grid(gender~.)  +
+  coord_cartesian(xlim=c(0,16)) +
+  labs(title="Mortality Rates by Gender", x="Mortality Rate per 1,000 PY", y="") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+
+plot_gender_irr <- npresult_gender %>%
+  mutate(gender = factor(gender, levels=c("Male","Female"), 
+                         labels = c("Male","Female"))) %>%
+  ggplot(data=., aes(x=gender, y=irr_est, ymin=irr_lower, ymax=irr_upper))+
+  geom_pointrange(aes(), lwd=0.8, col="#999999") +
+  scale_y_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  geom_hline(yintercept=1, linetype="dashed", size=1, col="grey") +
+  labs(title="Incidence rate ratio (IRR) by gender group", x="", y="IRR") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+
+# save plot for dsmc
+ggsave(plot_gender, 
+       filename= paste0(here(), "/DSMC/CHAT_mortality_gender_plot.png"),
+       width=8, height=6)
+
+ggsave(plot_gender_irr, 
+       filename= paste0(here(), "/DSMC/CHAT_mortality_genderirr_plot.png"),
+       width=8, height=6)
+```
+
+## Test of additive interaction by gender
+
+For a formal test of interaction on the additive scale, use a pooled binomial regression with identity link and robust SEs clustered at the community level to estimate the statistical significance of the interaction using a Wald test of nested models that include/exclude the interaction between treatment and gender category.
+
+```{r test for gender interaction on the additive scale}
+#-------------------------------
+# rate difference model with
+# interaction by gender category
+#-------------------------------
+rd_gender <- glm(death ~ tx + gender, data=dchp3, family=binomial(link="identity"))
+( rd_gender_rb <- coeftest(rd_gender, vcov.=vcovCL(rd_gender,cluster=dchp3$clusterid_public)) )
+
+rd_gendertx <- glm(death ~ tx + gender + tx:gender, data=dchp3, family=binomial(link="identity"))
+( rd_gendertx_rb <- coeftest(rd_gendertx, vcov.=vcovCL(rd_gendertx,cluster=dchp3$clusterid_public)) )
+
+#-------------------------------
+# conduct a Wald test for additive
+# interaction (homogeneity of the rate differences)
+# using the nested models - 
+# one including the interaction terms and one without them
+#-------------------------------
+( wald_test_gendertx <- waldtest(rd_gender,rd_gendertx))
+```
+
+```{r permutation test for interaction on the additive scale gender}
+#-------------------------------
+# conduct a permutation test
+# of the Wald statistic
+# for a final P-value
+# this will mean permuting cluster
+# level treatements and then
+# repeating the nested model fits
+# in each permutation, storing
+# the F-statistic from the 
+# Wald test. Then estimating
+# the permutation P-value from
+# the null distribution of the 
+# F-statistic
+#-------------------------------
+
+permute_walt_g <- function(i){
+  # Permute the treatment at the cluster level 
+  dtx <- dchp3 %>% select(clusterid_public, tx) %>% 
+    group_by(clusterid_public) %>% slice(1) %>% ungroup() %>%    
+    mutate(tx_perm = sample(tx, replace=FALSE))  
+  di <- left_join(dtx, dchp3, by=c("clusterid_public","tx"))
+  
+  # Fit the nested models using the permuted data
+  rd_gender_perm <- glm(death ~ tx_perm + gender, data = di, family = binomial(link = "identity"))
+  rd_gendertx_perm <- glm(death ~ tx_perm + gender + tx_perm:gender, data = di, family = binomial(link = "identity"))
+  
+  # extract and save the F stat
+  waldtest(rd_gender_perm, rd_gendertx_perm)$`F`[2]
+}
+
+# Set the number of permutations to use
+N <- 1000
+
+# Create an empty vector to store the permutation test statistics
+wald_perm_g <- numeric(N)
+
+for (i in 1:N) {
+  # Set the seed for reproducibility
+  set.seed(i)
+  # Calculate the Wald test statistic for the permuted models
+  wald_perm_g[i] <- permute_walt_g(i)
+ # Print the iteration number when i is a multiple of 10
+  if (i %% 50 == 0) {
+    cat("Iteration:", i, "\n")
+  }
+}
+
+  
+# Calculate the permutation P-value
+pval_perm_gender <- sum(wald_perm_g >= wald_test_gendertx$`F`[2]) / length(wald_perm_g)
+
+```
+
+```{r}
+# Print the results
+cat("Permutation P-value:", pval_perm_gender, "\n")
+```
+
+# Rate differences by phase
+
+Estimate rate differences within phase strata.  Estimate the rate difference and its 95% CI non-parametrically by bootstrap re-sampling clusters and re-estimating the phase-specific rates
+
+```{r phase differences}
+#-------------------------------
+# bootstrap resample clusters with replacement
+#
+# within each bootstrap replicate, 
+# estimate the age-stratified
+# Incidence Rate Ratio (IRR) and the
+# Incidence Rate Difference
+#
+# summarize the percentile-based
+# 95% CI for the IRR and IRD
+#-------------------------------
+
+# Define the bootstrap function to calculate IRR
+IRR_IRD <- function(d) {
+  az_person_years <- sum(d$person_years[d$tx == "Azithromycin"])
+  pl_person_years <- sum(d$person_years[d$tx == "Placebo"])
+  az_deaths <- sum(d$ndeaths[d$tx == "Azithromycin"])
+  pl_deaths <- sum(d$ndeaths[d$tx == "Placebo"])
+  az_incidence <- 1000*az_deaths / az_person_years
+  pl_incidence <- 1000*pl_deaths / pl_person_years
+  irr <- az_incidence / pl_incidence
+  ird <- (az_incidence - pl_incidence)
+  return(list(irr = irr, ird = ird, az_incidence = az_incidence, pl_incidence = pl_incidence))
+}
+
+# Create an empty data frame to store the results
+npresult_phase <- data.frame(
+  phase = character(),
+  az_incidence = double(),
+  az_lower = double(),
+  az_upper = double(),
+  pl_incidence = double(),
+  pl_lower = double(),
+  pl_upper = double(),
+  irr = character(),
+  ird = character()
+)
+
+
+# Set the seed for reproducibility
+set.seed(2023)
+
+# Set the number of bootstrap replicates
+B <- 10000
+
+# Loop through each stratum
+for (p in unique(dclpy3$phase_year)) {
+  # Subset the data to the current stratum
+  dclpy3_stratum <- dclpy3 %>% filter(phase_year == p)
+  
+  # Create a data frame to store the bootstrap results
+  boot_results <- data.frame(
+    replicate = integer(),
+    az_incidence = double(),
+    pl_incidence = double(),
+    irr = double(),
+    ird = double()
+  )
+
+  # Perform the bootstrap
+  for (i in 1:B) {
+    # Sample with replacement from the dataset
+    bootstrap_sample <- dclpy3_stratum[sample(nrow(dclpy3_stratum), replace = TRUE), ]
+    # Calculate the IRR and IRD for the bootstrap sample
+    results <- IRR_IRD(bootstrap_sample)
+    # Store the results in the data frame
+    boot_results[i, ] <- c(i, results$az_incidence, results$pl_incidence, results$irr, results$ird)
+  }
+
+  # Calculate the estimated IRR and IRD
+  est_irr <- IRR_IRD(dclpy3_stratum)$irr
+  est_ird <- IRR_IRD(dclpy3_stratum)$ird
+  est_az_incidence <- IRR_IRD(dclpy3_stratum)$az_incidence
+  est_pl_incidence <- IRR_IRD(dclpy3_stratum)$pl_incidence
+  
+  # Calculate the confidence interval
+  boot_irr_ci <- quantile(boot_results$irr, c(0.025, 0.975))
+  boot_ird_ci <- quantile(boot_results$ird, c(0.025, 0.975))
+  boot_azir_ci <- quantile(boot_results$az_incidence, c(0.025, 0.975))
+  boot_plir_ci <- quantile(boot_results$pl_incidence, c(0.025, 0.975))
+
+  # Print the estimated IRR and the confidence interval
+  # Print the estimated IRR and the confidence interval
+  cat("\n For phase", p, ": The non-parametric estimate of the IRR and its bootstrap 95% CI is:\n",
+      "IRR =", sprintf("%1.2f",est_irr),"(",sprintf("%1.2f",boot_irr_ci[1]),"to",sprintf("%1.2f",boot_irr_ci[2]),")\n",
+      "IRD =", sprintf("%1.2f",est_ird),"(",sprintf("%1.2f",boot_ird_ci[1]),"to",sprintf("%1.2f",boot_ird_ci[2]),")")
+
+  # Add the results to the data frame
+  npresult_phase <- rbind(npresult_phase, 
+                        data.frame(phase = p,
+                                   az_incidence = est_az_incidence, 
+                                   az_lower = as.numeric(boot_azir_ci[1]),
+                                   az_upper = as.numeric(boot_azir_ci[2]),
+                                   pl_incidence = est_pl_incidence, 
+                                   pl_lower = as.numeric(boot_plir_ci[1]),
+                                   pl_upper = as.numeric(boot_plir_ci[2]),
+                                   irr_est = est_irr,
+                                   irr_lower = boot_irr_ci[1],
+                                   irr_upper = boot_irr_ci[2],
+                                   ird_est = est_ird,
+                                   ird_lower = boot_ird_ci[1],
+                                   ird_upper = boot_ird_ci[2],
+                                   irr = paste0(sprintf("%1.2f",est_irr), " (", 
+                                                sprintf("%1.2f",boot_irr_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_irr_ci[2]), ")"), 
+                                   ird = paste0(sprintf("%1.2f",est_ird), " (", 
+                                                sprintf("%1.2f",boot_ird_ci[1]), ", ", 
+                                                sprintf("%1.2f",boot_ird_ci[2]), ")") 
+                                   )
+                        )
+}
+
+
+knitr::kable(npresult_phase %>%
+              dplyr::select(phase, irr, ird), 
+             col.names = c("Phase", "IRR (Non-parametrical 95% CI)", "IRD (Non-parametrical 95% CI)"
+                           ),
+             caption = "Incidence rate ratio (IRR) and Incidence rate difference (IRD) within study year strata"
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE)
+
+```
+
+```{r figures of the rates by phase }
+# Create the plot
+npresult_phase_long<-npresult_phase %>%
+  dplyr::select(-irr, -ird) %>%
+  pivot_longer(cols = c(az_incidence, az_lower, az_upper, pl_incidence, pl_lower, pl_upper),
+               names_to = c("tx", ".value"),
+               names_pattern = "(\\w+)_(\\w+)") %>%
+  mutate(tx = factor(tx, levels=c("az", "pl"), labels = c("Azithromycin", "Placebo")))
+
+
+plot_phase <- ggplot(data=npresult_phase_long, aes(y=tx, x=incidence, xmin=lower, xmax=upper)) +
+  geom_pointrange(aes(col=tx), lwd=0.8) +
+  geom_point(data=npresult_phase_long %>% filter(tx=="Placebo"),pch=19,color="white",size=2) +
+  scale_x_continuous(breaks = seq(0,16,by=2)) +
+  scale_color_manual(values = cbpal[c(8,1)]) + 
+  facet_grid(phase~.)  +
+  coord_cartesian(xlim=c(0,16)) +
+  labs(title="Mortality Rates by Study Phase", x="Mortality Rate per 1,000 PY", y="") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+plot_phase_irr <- npresult_phase %>%
+  mutate(phase = factor(phase, levels=c("0to12","12to24","24to36"), 
+                         labels = c("Year 1","Year 2","Year 3"))) %>%
+  ggplot(data=., aes(x=phase, y=irr_est, ymin=irr_lower, ymax=irr_upper))+
+  geom_line(aes(group = 1), lwd=1, col="#D3D3D3") + 
+  geom_pointrange(aes(), lwd=0.8, col="#999999") +
+  scale_y_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  geom_hline(yintercept=1, linetype="dashed", size=1, col="grey") +
+  labs(title="Incidence rate ratio (IRR) by study year", x="", y="") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+        )
+
+plot_phase_irr_horizontal <- npresult_phase %>%
+  mutate(phase = factor(phase, 
+                        levels=c("24to36", "12to24", "0to12"), 
+                        labels = c("Year 3", "Year 2", "Year 1"))) %>%
+  ggplot(data=., aes(y=phase, x=irr_est, xmin=irr_lower, xmax=irr_upper)) +
+ # geom_line(aes(group = 1), lwd=1, col="#D3D3D3") + 
+  geom_pointrange(aes(), lwd=1, col="black") +
+  scale_x_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), 
+                     limits = c(0.5,1.5)) +
+  geom_vline(xintercept=1, linetype="dashed", size=1.5, col="grey40") +
+  geom_pointrange(aes(), lwd=1, col="black") +
+  scale_x_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  labs( y="", x="IRR") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.x = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=14),
+        axis.text.y = element_blank(),
+        axis.title = element_text(size=14),
+        panel.border = element_blank() # Removes the box around the figures
+        )
+
+# save plot for dsmc
+ggsave(plot_phase_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_phase_plot.jpeg"),
+       width=3, height=4)
+ggsave(plot_phase_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_phase_plot.eps"),
+       width=3, height=4)
+```
+
+## Test of additive interaction by phase
+
+
+```{r test for phase interaction on the additive scale}
+#-------------------------------
+# rate difference model with
+# interaction by age category
+#-------------------------------
+rd_phase <- glm(death ~ tx + phase_year, data=dchp3, family=binomial(link="identity"))
+( rd_phase_rb <- coeftest(rd_phase, vcov.=vcovCL(rd_phase,cluster=dchp3$clusterid_public)) )
+
+rd_phasetx <- glm(death ~ tx + phase_year + tx:phase_year, data=dchp3, family=binomial(link="identity"))
+( rd_phasetx_rb <- coeftest(rd_phasetx, vcov.=vcovCL(rd_phasetx,cluster=dchp3$clusterid_public)) )
+
+#-------------------------------
+# conduct a Wald test for additive
+# interaction (homogeneity of the rate differences)
+# using the nested models - 
+# one including the interaction terms and one without them
+#-------------------------------
+( wald_test_phasetx <- waldtest(rd_phase,rd_phasetx))
+```
+
+
+```{r permutation test for phase interaction on the additive scale}
+#-------------------------------
+# conduct a permutation test
+# of the Wald statistic
+# for a final P-value
+# this will mean permuting cluster
+# level treatements and then
+# repeating the nested model fits
+# in each permutation, storing
+# the F-statistic from the 
+# Wald test. Then estimating
+# the permutation P-value from
+# the null distribution of the 
+# F-statistic
+#-------------------------------
+
+permute_walt_p <- function(i){
+  # Permute the treatment at the cluster level 
+  dtx <- dchp3 %>% select(clusterid_public, tx) %>% 
+    group_by(clusterid_public) %>% slice(1) %>% ungroup() %>%    
+    mutate(tx_perm = sample(tx, replace=FALSE))  
+  di <- left_join(dtx, dchp3, by=c("clusterid_public","tx"))
+  
+  # Fit the nested models using the permuted data
+  rd_phase_perm <- glm(death ~ tx_perm + phase, data = di, family = binomial(link = "identity"))
+  rd_phasetx_perm <- glm(death ~ tx_perm + phase + tx_perm:phase, data = di, family = binomial(link = "identity"))
+  
+  # extract and save the F stat
+  waldtest(rd_phase_perm, rd_phasetx_perm)$`F`[2]
+}
+
+# Set the number of permutations to use
+N <- 1000
+
+# Create an empty vector to store the permutation test statistics
+wald_perm_p <- numeric(N)
+
+for (i in 1:N) {
+  # Set the seed for reproducibility
+  set.seed(i)
+  # Calculate the Wald test statistic for the permuted models
+  wald_perm_p[i] <- permute_walt_p(i)
+ # Print the iteration number when i is a multiple of 10
+  if (i %% 50 == 0) {
+    cat("Iteration:", i, "\n")
+  }
+}
+
+  
+# Calculate the permutation P-value
+pval_perm_phase <- sum(wald_perm_p >= wald_test_phasetx$`F`[2]) / length(wald_perm_p)
+
+```
+
+```{r}
+# Print the results
+cat("Permutation P-value:", pval_perm_phase, "\n")
+```
+
+# Save plots for publication
+
+```{r}
+# save plot for table
+ggsave(plot_age_irr_horizontal, 
+       filename= "plot_age_irr_horizontal.eps",
+       device = "eps", 
+                dpi = 1200, 
+                width = 25,
+                height = 18, 
+                units = "cm")
+
+ggsave(plot_phase_irr_horizontal, 
+       filename= "plot_phase_irr_horizontal.eps",
+       device = "eps", 
+                dpi = 1200, 
+                width = 25,
+                height = 18, 
+                units = "cm")
+```
+
+
+# Session info
+```{r session info}
+sessionInfo()
+```
+

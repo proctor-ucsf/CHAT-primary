@@ -1,0 +1,138 @@
+---
+title: "CHAT Trial Primary Analysis - estimate coefficient of variation"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: pygments
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+Estimate the coefficient of variation in cluster-level mortality rates using an approach proposed by Hayes and Moulton (2017) 7.17: 
+
+$$
+\widehat{\sigma}_B^2 = s^2 - \frac{r}{\overline{y}_H}
+$$
+
+Where $s^2$ is the between-cluster variance in the mortality rate, $r$ is the overall mortality rate computed from all clusters combined; ${\overline{y}_H}$ is the harmonic mean of the $y_i$ (person-years of follow-up in clusters).
+
+The coefficient of variation is: $$\widehat{k} = \frac{\widehat{\sigma}_B}{r}$$
+
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here::here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final cluster level dataset for the CHAT trial. 
+
+```{r load the data}
+#---------------------------------
+# load the preprocessed cluster level data
+#---------------------------------
+
+# cluster-level dataset
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+```
+
+```{r process the data}
+#------------------------------
+# convert person-days into
+# person-years for convenience
+#
+# limit to cluster-phases where children 
+# were at risk and were not lost
+#
+# estimate the cluster-level
+# mortality rate per year
+#------------------------------
+dcl4 <- dcl %>%
+  mutate(person_years = person_days/365.25) %>%
+  filter(person_years > 0) %>%
+  mutate(mrate = ndeaths / person_years)
+
+```
+
+# Estimate coefficient of variation
+
+Estimate it over all clusters, and for each treatment group.
+
+```{r estimate cv all clusters}
+cv_all <- dcl4 %>%
+  ungroup() %>%
+  summarise(`N clusters` = n(),
+            `r` = round(sum(ndeaths)/sum(person_years),5),
+            `cluster SD(r)` = round(sd(mrate),4),
+            `y_H` = round(1/mean(1/person_years), 1),
+            `r/y_H` = r/y_H,
+            `variance_B` = (sd(mrate))^2 - (r/y_H),
+            `CV (k)` = round(sqrt(variance_B)/r,2))
+
+```
+
+```{r estimate cv placebo clusters}
+cv_pl <- dcl4 %>%
+  ungroup() %>%
+  filter(tx == "Placebo") %>%
+  summarise(`N clusters` = n(),
+            `r` = round(sum(ndeaths)/sum(person_years),5),
+            `cluster SD(r)` = round(sd(mrate),4),
+            `y_H` = round(1/mean(1/person_years), 1),
+            `r/y_H` = r/y_H,
+            `variance_B` = (sd(mrate))^2 - (r/y_H),
+            `CV (k)` = round(sqrt(variance_B)/r,2))
+ 
+```
+
+```{r estimate cv azithro clusters}
+cv_az <- dcl4 %>%
+  ungroup() %>%
+  filter(tx == "Azithromycin") %>%
+  summarise(`N clusters` = n(),
+            `r` = round(sum(ndeaths)/sum(person_years),5),
+            `cluster SD(r)` = round(sd(mrate),4),
+            `y_H` = round(1/mean(1/person_years), 1),
+            `r/y_H` = r/y_H,
+            `variance_B` = (sd(mrate))^2 - (r/y_H),
+            `CV (k)` = round(sqrt(variance_B)/r,2))
+```
+
+## Summary table
+
+```{r summary table}
+cv_table <- bind_rows(cv_all, cv_pl, cv_az) %>%
+  mutate(group = c("All clusters","Placebo","Azithromycin")) %>%
+  select(group, everything())
+
+kbl(cv_table) %>%
+  kable_styling(bootstrap_options = "striped") 
+
+```
+
+# Session info
+```{r session info}
+sessionInfo()
+```
+

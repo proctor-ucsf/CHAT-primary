@@ -1,0 +1,436 @@
+---
+title: "CHAT Trial Primary Analysis - Mortality"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+This script estimates compares 1-59m mortality between azithromycin and placebo the CHAT trial, the primary endpoint. 
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here("R","CHAT-primary-Config.R"))
+source(here::here("R","CHAT-primary-Functions.R"))
+```
+
+# Load the data
+
+
+```{r load the data}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+
+# cluster-level summaries
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+# treatment allocations
+tx_alloc <- read_rds(here("data","CHAT_tx_alloc_public.rds")) %>% 
+  dplyr::select(clusterid_public, hdss_strata = mortplus)
+
+# merge on the treatment allocation and strata to the main cluster-level summaries
+dcl <- dcl %>%
+  left_join(tx_alloc, by="clusterid_public")
+  
+```
+
+```{r process the data}
+#------------------------------
+# convert person-days into
+# person-years for convenience
+#------------------------------
+dcl2 <- dcl %>%
+  mutate(person_years = person_days/365.25)
+
+#------------------------------
+# for cluster-level summaries:
+# tabulate and then 
+# drop clusters with no person time
+#------------------------------
+
+dcl3 <- dcl2 %>%
+  filter(person_years > 0)
+
+#------------------------------
+# estimate the cluster-level
+# mortality rate
+#------------------------------
+dcl3$mrate <- dcl3$ndeaths/dcl3$person_years
+```
+
+# Cluster-level summary distributions
+
+## Pooled distributions
+
+```{r distributions overall}
+#-------------------------------
+# histogram of person years
+# and deaths overall
+#-------------------------------
+dcl3 %>%
+  ggplot(aes(x=person_years))+
+  geom_histogram(binwidth=40, alpha=0.2,color="gray40")+
+  scale_x_continuous(breaks=seq(0,1200,by=200)) +
+  scale_y_continuous(breaks=seq(0,25,by=5)) +
+  theme_minimal() +
+  theme(legend.position = "none", strip.text.y = element_text(angle=0, size=12, hjust=0)) +
+  labs(x="Person years at risk (cluster totals)", y = "Number of clusters",
+       title = "Person years at risk", subtitle = "(bin width = 40)")
+
+dcl3 %>%
+  ggplot(aes(x=ndeaths))+
+  geom_histogram(binwidth=1,alpha=0.2,color="gray40")+
+  scale_x_continuous(breaks=seq(0,25,by=5)) +
+  scale_y_continuous(breaks=seq(0,55,by=5)) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0, size=12, hjust=0),
+        panel.grid.minor.y = element_blank()) +
+  labs(x="Number of deaths", y = "Number of clusters",
+       title = "Number of deaths per cluster", subtitle = "(bin width = 1)")
+
+#-------------------------------
+# histogram of mortality rates
+# overall
+#-------------------------------
+ggplot(data=dcl3, aes(x = mrate*1000)) +
+  geom_histogram(show.legend = TRUE, alpha=0.2, binwidth = 1,color="gray40") +
+  scale_x_continuous(breaks = seq(0,50,by=10)) +
+  scale_y_continuous(breaks=seq(0,55,by=5)) +
+  labs(title="Mortality rate", subtitle = "(histogram bin width is 1)", x="mortality rate (deaths per 1000 child-years)", y="number of clusters") +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0),
+        panel.grid.minor.y = element_blank()
+        )
+
+```
+
+## Arm-stratified distributions
+
+Person time, Number of Deaths, and Mortality Rates by arm
+
+```{r arm stratified distributions}
+#-------------------------------
+# histogram of person-years
+# by arm
+#-------------------------------
+dcl3 %>%
+  ggplot(aes(x=person_years, color=tx, fill=tx))+
+  geom_histogram(binwidth=40, alpha=0.5)+
+  scale_color_manual(values=c("#999999", "#E69F00"))+
+  scale_fill_manual(values=c("#999999", "#E69F00"))+
+  scale_x_continuous(breaks=seq(0,1200,by=200)) +
+  facet_grid(tx ~ .) +
+  theme_minimal() +
+  theme(legend.position = "none", strip.text.y = element_text(angle=0, size=12, hjust=0)) +
+  labs(x="Person years at risk (cluster totals)", y = "Number of clusters",
+       title = "Person years at risk", subtitle = "(bin width = 40)")
+
+#-------------------------------
+# histogram of deaths
+# by arm
+#-------------------------------
+dcl3 %>%
+  ggplot(aes(x=ndeaths, color=tx, fill=tx))+
+  geom_histogram(binwidth=1,alpha=0.5)+
+  scale_color_manual(values=c("#999999", "#E69F00"))+
+  scale_fill_manual(values=c("#999999", "#E69F00"))+
+  scale_x_continuous(breaks=seq(0,25,by=5)) +
+  scale_y_continuous(breaks=seq(0,25,by=5)) +
+  facet_grid(tx ~ .) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        strip.text.y = element_text(angle=0, size=12, hjust=0),
+        panel.grid.minor.y = element_blank()) +
+  labs(x="Number of deaths (cluster totals)", y = "Number of clusters",
+       title = "Number of deaths per cluster", subtitle = "(bin width = 1)")
+
+#-------------------------------
+# histogram of mortality rates
+# by arm
+#-------------------------------
+dcl3 %>%
+  ggplot(aes(x=mrate*1000, color=tx, fill=tx))+
+  geom_histogram(binwidth=1,alpha=0.5)+
+  scale_color_manual(values=c("#999999", "#E69F00"))+
+  scale_fill_manual(values=c("#999999", "#E69F00"))+
+  scale_x_continuous(breaks=seq(0,50,by=10)) + 
+  scale_y_continuous(breaks=seq(0,25,by=5)) +
+  facet_grid(tx ~ .) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        panel.grid.minor.y = element_blank(), 
+        strip.text.y = element_text(angle=0,size=12, hjust=0)) +
+  labs(x="Mortality Rate per 1,000 child-years", y = "Number of clusters",
+       title = "Cluster level mortality rates", subtitle = "(bin width = 1)")
+
+#-------------------------------
+# smoothed density of mortality rates
+# in the two groups
+#-------------------------------
+dcl3$rugpos <- ifelse(dcl3$tx=="Placebo",0,-0.002)
+
+ggplot(data=dcl3, aes(x = mrate*1000, color=tx, fill=tx)) +
+  geom_density( show.legend = TRUE, fill=NA) +
+  geom_point(aes(x=mrate*1000,y=rugpos),alpha=0.3, pch=21) +
+  scale_color_manual(values=c("black","#E69F00")) + 
+  scale_fill_manual(values=c("black","#E69F00")) + 
+  scale_x_continuous(breaks = seq(0,50,by=10)) +
+  labs(title="mortality rate by group", x="mortality rate (deaths per 1000 child-years)", y="density") +
+  theme_minimal() +
+  theme(legend.position = c(0.8,0.8)
+        )
+```
+# Non-parametric bootstrap
+
+## Estimate IRR with a NP bootstrap
+
+Resample clusters with replacement
+
+```{r 95% CI using bootstrap}
+# Set the seed for reproducibility
+set.seed(2023)
+
+# Set the number of bootstrap replicates
+B <- 10000
+# Create a vector to store the bootstrap results
+boot_results_IRR <- numeric(B)
+boot_results_IRD <- numeric(B)
+
+# Perform the bootstrap
+for (i in 1:B) {
+  # Sample with replacement from the dataset
+  bootstrap_sample <- dcl3[sample(nrow(dcl3), replace = TRUE), ]
+  # Calculate the IRR for the bootstrap sample
+  boot_results_IRR[i] <- IRR_IRD(bootstrap_sample)[1]
+  boot_results_IRD[i] <- IRR_IRD(bootstrap_sample)[2]
+}
+
+# Calculate the estimated IRDIRR
+est_irr <- IRR_IRD(dcl3)[1]
+est_ird <- IRR_IRD(dcl3)[2]
+
+# Calculate the confidence interval for IRDIRR
+boot_ci_irr <- quantile(boot_results_IRR, c(0.025, 0.975))
+boot_ci_ird <- quantile(boot_results_IRD, c(0.025, 0.975))
+
+
+
+# Print the estimated IRR and the confidence interval
+cat("\n The non-parametric estimate of the IRR and its bootstrap 95% CI is:\n",
+    "IRR =", sprintf("%1.2f",est_irr),
+    "(",sprintf("%1.2f",boot_ci_irr[1]),
+    "to",sprintf("%1.2f",boot_ci_irr[2]),")")
+
+cat("\n The non-parametric estimate of the IRD and its bootstrap 95% CI is:\n",
+    "IRR =", sprintf("%1.2f",est_ird),
+    "(",sprintf("%1.2f",boot_ci_ird[1]),
+    "to",sprintf("%1.2f",boot_ci_ird[2]),")")
+
+```
+
+# Permutation test
+
+Conditionally permute treatment within strata, re-estimate IRR using NB1 regression, and estimate the permutation P-value using 10,000 permutations.
+
+```{r permutation test from NB1 regression}
+#-------------------------------
+# run the NB-1 reg model
+#-------------------------------
+# placebo arm
+dcl3_p <- dcl3 %>% filter(tx == "Placebo")
+mnb1_p <-do.reg(dcl3_p,b1=0,qq=1,lf.generator=mk.nbpll.full)
+mort_p <- mnb1_p$estimate[1]
+# 0.01004351
+
+# azithro arm
+dcl3_a <- dcl3 %>% filter(tx == "Azithromycin")
+mnb1_a <-do.reg(dcl3_a,b1=0,qq=1,lf.generator=mk.nbpll.full)
+mort_a <- mnb1_a$estimate[1]
+# 0.00821943
+
+observed_logirr <- log(mort_a/mort_p)
+# IRR = 0.818382
+# log(IRR) = -0.2004
+
+#------------------------------------------
+# permute the NB1 regression
+# stratified by arm, allowing heterogeneity
+#------------------------------------------
+nb1_irr <- function(d) {
+  # Placebo NB1
+  dcl3_p <- d %>% filter(tx_permuted == "Placebo")
+  mnb1_p <- do.reg(dcl3_p,b1=0,qq=1,lf.generator=mk.nbpll.full)
+  # save a model summary
+  mort_p <- mnb1_p$estimate[1]
+
+  # Azithromycin NB1
+  dcl3_a <- d %>% filter(tx_permuted == "Azithromycin")
+  mnb1_a <- do.reg(dcl3_a,b1=0,qq=1,lf.generator=mk.nbpll.full)
+  # save the log IRR and its SE
+  mort_a <- mnb1_a$estimate[1]
+  
+  # calculate logirr
+  logirr = log(mort_a/mort_p)
+  logirr
+}
+
+#-------------------------------
+# conditional permutation function
+# permute treatment within each 
+# of 2 randomization strata
+#
+# this is very much tailored to our
+# analysis dataset, but it is simple
+#
+# it stratifies the data.frame, 
+# re-permutes treatment within strata (hdss_strata),
+# and then returns the data.frame with permuted treatment
+# stored in a new variable, tx_permuted
+#
+# arguments:
+# @x a cluster-level data frame with variables tx, hdss_strata
+#    where tx is the treatment label and hdss_strata indicates randomization strata
+#
+# returns the same data frame, but with treatment shuffled
+#-------------------------------
+conditionally_permute <- function(x) {
+    tx0 <- x[x$hdss_strata == 0,]
+    tx1 <- x[x$hdss_strata == 1,]
+    tx0$tx_permuted <- sample(tx0$tx,size = nrow(tx0), replace=FALSE)
+    tx1$tx_permuted <- sample(tx1$tx,size = nrow(tx1), replace=FALSE)
+    return(bind_rows(tx0,tx1))
+}
+
+#-------------------------------
+# run the function N times to 
+# produce the null distribution of the log IRR
+#-------------------------------
+# Set the number of permutations
+N <- 10000
+
+# Vector to store the permuted log incidence rate ratios
+permuted_logirr <- numeric(N)
+
+# Perform the permutation test in parallel using foreach and %dopar%
+permuted_logirr <- foreach(i = 1:N, .combine = c) %dopar% {
+  set.seed(i)
+  # Permute tx randomly
+  di <- conditionally_permute(dcl3)
+  # Calculate the logirr for the permuted data
+  nb1_irr(di)
+}
+
+# Calculate the p-value by comparing the observed statistic to the permutation distribution
+p_value <- sum(abs(permuted_logirr) >= abs(observed_logirr)) / N
+
+cat("Permutation P-value = ", round(p_value, 3), "\n")
+```
+
+# Summary table
+
+```{r summary mortality table, warning = FALSE, message = FALSE}
+#-------------------------------
+# summary of deaths and person-time
+#-------------------------------
+dtable <- dcl3 %>%
+  # tabulate deaths and person time by group
+  group_by(tx) %>%
+  summarise(ndeaths = sum(ndeaths), py = sum(person_years), .groups = "keep") %>%
+  # calculate cumulative mortality rate per 1000
+  mutate(mrate= (ndeaths / py)*1000) %>%
+  pivot_wider(names_from=tx, values_from=c("ndeaths", "py", "mrate")) %>%
+  dplyr::select(
+         ndeaths_Azithromycin, py_Azithromycin, mrate_Azithromycin,
+         ndeaths_Placebo, py_Placebo, mrate_Placebo
+         )
+
+# prepare the IRR from the model and p-value
+df_irr <- data.frame(irr=paste0(sprintf("%1.2f",est_irr), 
+                                   " (", sprintf("%1.2f",boot_ci_irr[1]), 
+                                   ", ", sprintf("%1.2f",boot_ci_irr[2]), ")"),
+                     ird=paste0(sprintf("%1.2f",est_ird), 
+                                   " (", sprintf("%1.2f",boot_ci_ird[1]), 
+                                   ", ", sprintf("%1.2f",boot_ci_ird[2]), ")"),
+                        pvalue=p_value)
+
+# bind everything together
+dtable <- bind_cols(data.frame(outcome="All-cause Mortality"), 
+                    dtable, df_irr)
+
+# render table
+knitr::kable(dtable, 
+             digits = c(0,0,0,2,0,0,2,0,0,3),
+             format.args = list(big.mark = ","),
+             col.names = c("Outcome", 
+                           "N Deaths", "Person-Years", "Rate per 1,000 PY", 
+                           "N Deaths", "Person-Years", "Rate per 1,000 PY", 
+                           "IRR (95% CI)*", "IRD (95% CI)*", "P-value†"),
+             caption = "Incidence rate of all-cause mortality and 
+             incidence rate ratio (IRR) for comparison between groups."
+      ) %>%
+  kable_styling(bootstrap_options = "striped",full_width = TRUE) %>%
+  add_header_above(c(" " = 1, "Azithromycin" = 3, "Placebo" = 3, " " = 3)) %>%
+  footnote(symbol = c("95% CI estimated using a non-parametric bootstrap", 
+                      "Permutation P-value (10,000 replicates) using NB1 regression model"))
+```
+```{r, warning= FALSE, message = FALSE}
+df_irr <- data.frame(irr_est = est_irr,
+                     irr_lower = boot_ci_irr[1],
+                     irr_upper = boot_ci_irr[2])
+
+plot_irr_horizontal <- df_irr %>%
+ ggplot(data=., aes(y = 1, x=irr_est, xmin=irr_lower, xmax=irr_upper))+
+  geom_vline(xintercept=1, linetype="dashed", size=1.5, col="grey40") +
+  geom_pointrange(aes(), lwd=1, col="black") +
+  scale_x_continuous(trans = log_trans(), breaks = seq(0.5,1.5,by=0.25), limits = c(0.5,1.5)) +
+  labs( y="", x="IRR") +
+  theme_bw() +
+  theme(legend.position = "none", 
+        strip.text.x = element_text(angle=0,size=12,hjust=0),
+        strip.background = element_rect(fill=NA),
+        axis.text = element_text(size=14),
+        axis.text.y = element_blank(),
+        axis.title = element_text(size=14),
+        panel.border = element_blank() # Removes the box around the figures
+        )
+
+# save plot
+ggsave(plot_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_plot.jpeg"),
+       width=3, height=2)
+ggsave(plot_irr_horizontal, 
+       filename= paste0(here(), "/output/figures/CHAT_mortality_plot.eps"),
+       width=3, height=2)
+```
+
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+

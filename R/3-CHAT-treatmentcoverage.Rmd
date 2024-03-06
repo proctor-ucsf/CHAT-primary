@@ -1,0 +1,320 @@
+---
+title: "CHAT Trial Primary Analysis - Coverage"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+# Summary
+
+The report summarizes treatment coverage by phase in the CHAT trial.
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final population tracking dataset. 
+
+```{r load the data, warning= FALSE, message = FALSE}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+
+dch <- read_rds(here("data","CHAT_child_census_public.rds"))
+
+# child-phase level data
+dchp <- read_rds(here("data","CHAT_child_phase_public.rds"))
+  
+# cluster-phase level summaries
+dclp <- read_rds(here("data","CHAT_cluster_phase_public.rds"))
+
+# cluster-level summaries
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+# Treatment allocation
+tx_alloc <- read_rds(here("data","CHAT_tx_alloc_public.rds"))
+  
+```
+
+
+```{r process the data, warning= FALSE, message = FALSE}
+#------------------------------
+# convert person-days into
+# person-years for convenience
+#------------------------------
+dchp2 <- dchp %>%
+  mutate(person_years = person_days/365.25)
+
+dclp2 <- dclp %>%
+  mutate(person_years = person_days/365.25)
+
+dcl2 <- dcl %>%
+  mutate(person_years = person_days/365.25)
+
+#------------------------------
+# for the cluster-phase-level data
+# and cluster-level summaries:
+# 
+# tabulate and then 
+# drop clusters with no person time
+#------------------------------
+dclp3 <- dclp2 %>%
+  filter(person_years > 0)
+
+dcl3 <- dcl2 %>%
+  filter(person_years > 0)
+
+#------------------------------
+# estimate the cluster-level
+# mortality rate
+#------------------------------
+dcl3$mrate <- dcl3$ndeaths/dcl3$person_years
+```
+
+
+```{r, warning= FALSE, message = FALSE}
+chcp <- dch %>% 
+  pivot_wider(id_cols = c(clusterid_public, childid_public),
+              names_from = phase,
+              values_from = c(childVital, elig, ageInMonths, agecat, isAdministered),
+              names_sep = "_"
+              )
+
+# Treatment coverage from CHAT 0 to CHAT 6
+chcp_0to6 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C0toC6` = sum(elig_6 == 1, na.rm = T) + # eligible now
+                            sum(ageInMonths_0 %in% 0:54 & elig_0 == 1 & elig_6 %in% c(0, NA), na.rm = T), 
+            `Treated C6` = sum(elig_6 == 1 & isAdministered_6 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C6` = round(`Treated C6`/`Elig C0toC6` * 100))
+
+# Treatment coverage from CHAT 6 to CHAT 12
+chcp_6to12 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C6toC12` = sum(elig_12 == 1, na.rm = T) + # eligible now
+                             sum(ageInMonths_6 %in% 0:54 & elig_6 == 1 & elig_12 %in% c(0, NA), na.rm = T), 
+            `Treated C12` = sum(elig_12 == 1 & isAdministered_12 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C12` = round(`Treated C12`/`Elig C6toC12` * 100))
+
+# Treatment coverage from CHAT 12 to CHAT 18
+chcp_12to18 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C12toC18` = sum(elig_18 == 1, na.rm = T) + # eligible now
+                              sum(ageInMonths_12 %in% 0:54 & elig_12 == 1 & elig_18 %in% c(0, NA), na.rm = T), 
+            `Treated C18` = sum(elig_18 == 1 & isAdministered_18 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C18` = round(`Treated C18`/`Elig C12toC18` * 100))
+
+# Treatment coverage from CHAT 18 to CHAT 24
+chcp_18to24 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C18toC24` = sum(elig_24 == 1, na.rm = T) + # eligible now
+                              sum(ageInMonths_18 %in% 0:54 & elig_18 == 1 & elig_24 %in% c(0, NA), na.rm = T), 
+            `Treated C24` = sum(elig_24 == 1 & isAdministered_24 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C24` = round(`Treated C24`/`Elig C18toC24`*100))
+
+# Treatment coverage from CHAT 24 to CHAT 30
+chcp_24to30 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C24toC30` = sum(elig_30 == 1, na.rm = T) + # eligible now
+                              sum(ageInMonths_24 %in% 0:54 & elig_24 == 1 & elig_30 %in% c(0, NA), na.rm = T), 
+            `Treated C30` = sum(elig_30 == 1 & isAdministered_30 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C30` = round(`Treated C30`/`Elig C24toC30`*100))
+
+# Treatment coverage from CHAT 30 to CHAT 36
+chcp_30to36 <- chcp %>% 
+  group_by(clusterid_public) %>% 
+  summarise(`Elig C30toC36` = sum(elig_36 == 1, na.rm = T) + # eligible now
+                              sum(ageInMonths_30 %in% 0:54 & elig_30 == 1 & elig_36 %in% c(0, NA), na.rm = T), 
+            `Treated C36` = sum(elig_36 == 1 & isAdministered_36 == 1, na.rm = T)) %>% 
+            adorn_totals("row", name = "All") %>% 
+            mutate(`Coverage C36` = round(`Treated C36`/`Elig C30toC36`*100))
+
+inter_cov <- list(chcp_0to6,
+                  chcp_6to12,
+                  chcp_12to18,
+                  chcp_18to24,
+                  chcp_24to30,
+                  chcp_30to36) %>% 
+  reduce(full_join, by = c("clusterid_public")) %>% 
+  # put overall row at the top
+  slice(c(nrow(.), 1:nrow(.)-1))
+```
+
+```{r, warning= FALSE, message = FALSE}
+inter_cov %>%
+  data.frame() %>%
+  filter(clusterid_public != "All") %>%
+  select(clusterid_public, starts_with("Coverage")) %>%
+  gather(phase, coverage, -clusterid_public) %>%
+  mutate(phase = case_when(phase == "Coverage.C6" ~ "PHASE 0 to 6",
+                           phase == "Coverage.C12" ~ "PHASE 6 to 12",
+                           phase == "Coverage.C18" ~ "PHASE 12 to 18",
+                           phase == "Coverage.C24" ~ "PHASE 18 to 24",
+                           phase == "Coverage.C30" ~ "PHASE 24 to 30",
+                           phase == "Coverage.C36" ~ "PHASE 30 to 36"),
+         phase = factor(phase, levels = c("PHASE 0 to 6",
+                                          "PHASE 6 to 12",
+                                          "PHASE 12 to 18",
+                                          "PHASE 18 to 24",
+                                          "PHASE 24 to 30",
+                                          "PHASE 30 to 36"
+                                          ))) %>%
+  ggplot(aes(coverage)) +
+  geom_histogram(alpha=0.5, fill="#999999", color="black") +
+  facet_wrap(~phase) +
+  labs(x = "Coverage (%)",
+       y = "Number of clusters") +
+  theme_classic()
+```
+
+```{r, warning= FALSE, message = FALSE}
+vill_cluster_cov <- inter_cov %>%
+  data.frame() %>%
+  filter(clusterid_public != "All") %>%
+  select(clusterid_public, starts_with("Coverage")) %>%
+  gather(phase, coverage, -clusterid_public) %>%
+  mutate(phase = case_when(phase == "Coverage.C6" ~ "PHASE 0 to 6",
+                           phase == "Coverage.C12" ~ "PHASE 6 to 12",
+                           phase == "Coverage.C18" ~ "PHASE 12 to 18",
+                           phase == "Coverage.C24" ~ "PHASE 18 to 24",
+                           phase == "Coverage.C30" ~ "PHASE 24 to 30",
+                           phase == "Coverage.C36" ~ "PHASE 30 to 36"),
+         phase = factor(phase, levels = c("PHASE 0 to 6",
+                                          "PHASE 6 to 12",
+                                          "PHASE 12 to 18",
+                                          "PHASE 18 to 24",
+                                          "PHASE 24 to 30",
+                                          "PHASE 30 to 36"
+                                          ))) %>%
+  inner_join(tx_alloc, by = "clusterid_public") %>%
+  select(clusterid_public, tx, phase, coverage) 
+
+vill_cluster_cov %>%
+  group_by(tx, phase) %>%
+  summarise(`Mean Coverage (SD)` = paste0(round(mean(coverage, na.rm = T),1), 
+                                          " (", 
+                                          round(sd(coverage, na.rm = T),1),
+                                          ")")
+            ) %>%
+  ungroup() %>%
+  # bind overall coverage by tx
+  bind_rows(
+    vill_cluster_cov %>%
+      group_by(tx) %>%
+      summarise(phase = "Overall",
+                `Mean Coverage (SD)` = paste0(round(mean(coverage, na.rm = T),1), 
+                                              " (", 
+                                              round(sd(coverage, na.rm = T),1),
+                                              ")")
+                )
+  ) %>%
+  spread(tx, `Mean Coverage (SD)`) %>%
+   kable(format = "html", booktabs = T, linesep = "",
+        format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("HOLD_position", "repeat_header", "striped")) 
+
+
+```
+
+
+```{r, warning= FALSE, message = FALSE}
+cov_arm <- inter_cov %>%
+  data.frame() %>%
+  select(-contains("Coverage")) %>%
+  filter(clusterid_public != "All") %>%
+  inner_join(tx_alloc, by = "clusterid_public") %>%
+  select(clusterid_public, tx, everything()) %>%
+  group_by(tx) %>%
+  summarise(
+    # 0-6
+    Elig.C0toC6=sum(Elig.C0toC6),
+    Treated.C6=sum(Treated.C6),
+    Coverage.C6=round(100*sum(Treated.C6)/sum(Elig.C0toC6)),
+    # 6-12
+    Elig.C6toC12=sum(Elig.C6toC12),
+    Treated.C12=sum(Treated.C12),
+    Coverage.C12=round(100*sum(Treated.C12)/sum(Elig.C6toC12)),
+    # 12-18
+    Elig.C12toC18=sum(Elig.C12toC18),
+    Treated.C18=sum(Treated.C18),
+    Coverage.C18=round(100*sum(Treated.C18)/sum(Elig.C12toC18)),
+    # 18-24
+    Elig.C18toC24=sum(Elig.C18toC24),
+    Treated.C24=sum(Treated.C24),
+    Coverage.C24=round(100*sum(Treated.C24)/sum(Elig.C18toC24)),
+    # 24-30
+    Elig.C24toC30=sum(Elig.C24toC30),
+    Treated.C30=sum(Treated.C30),
+    Coverage.C30=round(100*sum(Treated.C30)/sum(Elig.C24toC30)),
+    # 30-36
+    Elig.C30toC36=sum(Elig.C30toC36),
+    Treated.C36=sum(Treated.C36),
+    Coverage.C36=round(100*sum(Treated.C36)/sum(Elig.C30toC36))
+  )
+
+cov_arm %>%
+  select(tx, 
+         Elig.C0toC6,Treated.C6,Coverage.C6,
+         Elig.C6toC12, Treated.C12, Coverage.C12,
+         Elig.C12toC18, Treated.C18, Coverage.C18) %>%
+  kable(format = "html", booktabs = T, linesep = "",
+        format.args = list(big.mark = ","),
+        col.names = c("Treatment arm",rep(c("Eligible", "Treated", "% Coverage"), 3))) %>% 
+  add_header_above(c(" " = 1,
+                     "PHASE 0 to 6" = 3,
+                     "PHASE 6 to 12" = 3,
+                     "PHASE 12 to 18" = 3),
+                   bold = T) %>%
+  kable_styling(bootstrap_options = c("HOLD_position", "repeat_header", "striped")) %>% 
+  column_spec(2:10, width = "2.5em") %>% 
+  column_spec(c(4, 7, 10), bold = T)
+
+cov_arm %>%
+  select(tx, 
+         Elig.C18toC24,Treated.C24,Coverage.C24,
+         Elig.C24toC30, Treated.C30, Coverage.C30,
+         Elig.C30toC36, Treated.C36, Coverage.C36)  %>%
+  kable(format = "html", booktabs = T, linesep = "",
+        format.args = list(big.mark = ","),
+        col.names = c("Treatment arm",rep(c("Eligible", "Treated", "% Coverage"), 3))) %>% 
+  add_header_above(c(" " = 1,
+                     "PHASE 18 to 24" = 3,
+                     "PHASE 24 to 30" = 3,
+                     "PHASE 30 to 36" = 3),
+                   bold = T) %>%
+  kable_styling(bootstrap_options = c("HOLD_position", "repeat_header", "striped")) %>% 
+  column_spec(c(4, 7, 10), bold = T)
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+```

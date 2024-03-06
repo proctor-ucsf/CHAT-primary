@@ -1,0 +1,237 @@
+---
+title: "CHAT Trial Primary Analysis - Geographic Map"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+This script generate geographic distribution for CHAT.
+
+**Disclaimer:** This script runs off of data that contains confidential GPS information, and will not run off of CHAT public replication data.
+
+# Configuration
+
+```{r preamble, message = FALSE, warning=FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here::here("R","CHAT-primary-Config.R"))
+```
+
+# Load the data
+
+Load the final population tracking dataset. 
+
+```{r load the data, message = FALSE, warning=FALSE}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+
+# cluster-level summaries
+dcl <- read_rds(paste0(data_folder, "/final/mortality/CHAT_cluster_dataset.rds"))
+
+# gps info
+chat_gps <- read_rds(paste0(data_folder, "/final/mortality/CHAT_clusterGPS_dataset.rds")) %>%
+  select(clusterid,latitude,longitude)
+
+# treatment allocations
+tx_alloc <- read_csv(paste0(data_folder, "/tables/assignments-CHAT.csv")) %>%
+  # create cluster idenitifier - to use for merging tx info. NOTE: villcode <-> village
+  mutate(clusterid = sprintf("ID%04s", paste0(villcode, cluster))) %>%
+  dplyr::select(clusterid, txlet = assign.letter)
+
+# merge on the treatment allocation and strata to the main cluster-level summaries
+dcl <- dcl %>%
+  ungroup %>%
+  dplyr::select(-txlet) %>%
+  left_join(tx_alloc, by="clusterid")
+```
+
+```{r prepare dataset, message = FALSE, warning=FALSE}
+# number of phase
+dcl2 <- dcl %>%
+  mutate(number_phase = cl_meas0 + cl_meas6 + cl_meas12 + cl_meas18 + cl_meas24 + cl_meas30 + cl_meas36) %>%
+  dplyr::select(-contains("cl_meas"), -txlet) 
+
+# Cluster level summary
+# consecutive census visits 
+dmap <- tx_alloc %>%
+  left_join(chat_gps, by = "clusterid") %>%
+  left_join(dcl2, by = "clusterid")%>%
+  mutate(number_phase=ifelse(is.na(number_phase), 0, number_phase),
+         censused_visit=factor(ifelse(number_phase<2 | person_days == 0, 
+                                      "No contributed phases", "≥1 contributed phases"),
+                               levels = c("No contributed phases", "≥1 contributed phases")),
+         tx = ifelse(txlet %in% Pl, "Placebo","Azithromycin"),
+         tx = factor(tx,levels = c("Placebo","Azithromycin")),
+         person_years = person_days/365.25,
+         mrate = 1000*ndeaths/person_years) %>%
+  filter(!is.na(longitude))
+
+dmap1 <- dmap %>%
+  filter(person_years > 0)
+```
+
+```{r,  message = FALSE, warning=FALSE}
+#-------------------------------
+# format grappe data as sf
+#-------------------------------
+d_sf <- st_as_sf(dmap, coords=c("longitude","latitude"), 
+                 crs=4326) # set coordinate ref system to WGS1984
+
+#-------------------------------
+# load administrative boundaries
+# downloaded from 
+# humanitarian data exchange
+# https://data.humdata.org/dataset/cod-ab-bfa
+#-------------------------------
+burkina_adm0 <- st_read(dsn = paste0(data_folder, "/tables/bfa_adm_igb_20200323_shp/bfa_admbnda_adm0_igb_20200323.shp"))
+
+burkina_adm1 <- st_read(dsn = paste0(data_folder, "/tables/bfa_adm_igb_20200323_shp/bfa_admbnda_adm1_igb_20200323.shp"))
+
+burkina_adm2 <- st_read(dsn = paste0(data_folder, "/tables/bfa_adm_igb_20200323_shp/bfa_admbnda_adm2_igb_20200323.shp"))
+
+burkina_adm2_Kossi <- burkina_adm2 %>%
+  filter(ADM2_FR == "Kossi")
+
+africa_adm <- st_read(dsn = paste0(data_folder, "/tables/wca_admbnda_adm0_ocha_29062021/wca_admbnda_adm0_ocha_29062021.shp")) %>%
+  filter(admin0Name %in% c("Mali", "Niger", 
+                           "Côte d'Ivoire", "Ghana", 
+                           "Benin", "Togo", "Burkina Faso"))
+
+berkina_adm <- st_read(dsn = paste0(data_folder, "/tables/wca_admbnda_adm0_ocha_29062021/wca_admbnda_adm0_ocha_29062021.shp")) %>%
+  filter(admin0Name %in% c("Burkina Faso"))
+```
+
+```{r, message = FALSE, warning=FALSE}
+# annotation line
+nouna_lab_line <- data.frame(x1=-2.6,x2=-3.3,y1=13.25,y2=12.9)
+
+# zoomed out overview of Niger
+burkina_map <- 
+  ggplot() +
+    #geom_sf(data=burkina_adm0, color="black",lwd=0.5) +
+    geom_sf(data=africa_adm,fill = "white", color="grey50",lwd=0.5) +
+    geom_sf(data=berkina_adm, color="grey50",lwd=0.5) +
+    geom_sf(data=burkina_adm2_Kossi, color="black",lwd=0.5) +
+    coord_sf(crs = 4326) +
+    geom_rect(aes(xmin = -4.4, xmax = -3.3, ymin = 12.25, ymax = 13.75), 
+              color = "black", fill = NA, lty = "dashed", inherit.aes = FALSE) +
+    # annotate("text",x=-2.5,y=13.4, label = "Nouna", fontface = "bold", color = "gray30", size=5) + 
+    # add country labels
+    annotate("text",x=-0.5,y=12.2, label = "Burkina Faso", fontface="bold",size=5) +
+    annotate("text",x=-5.5,y=13, label = "Mali", fontface="bold",size=3, color = "grey40") +
+    annotate("text",x=-4.5,y=9, label = "Côte d'Ivoire", fontface="bold",size=3, color = "grey40") +
+    annotate("text",x=-1.5,y=10, label = "Ghana", fontface="bold",size=3, color = "grey40") +
+    annotate("text",x=1.8,y=10.5, label = "Benin", fontface="bold",size=3, color = "grey40") +
+    annotate("text",x=1.5,y=14, label = "Niger", fontface="bold",size=3, color = "grey40") +
+    annotate("text",x=1.1,y=8.75, label = "Togo", fontface="bold",size=2.8, color = "grey40") +
+    labs(x="",y="")  +
+    coord_sf(crs = 4326,
+           xlim = c(-6.1, 2.6), ylim = c(8.3, 15.4),
+           expand = FALSE) +
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        plot.margin = margin(0,0,0,0, "pt")
+          )
+```
+
+
+
+```{r, message = FALSE, warning=FALSE}
+# annotation line
+# nouna_lab_line <- data.frame(x1=-3.55,x2=-3.6,y1=13.45,y2=13.25)
+
+nouna_map <- ggplot() +
+  annotate("text",x=-3.71,y=13.15, label = "Nouna", fontface = "bold", color = "gray80", size=5.5) + 
+  annotate("text",x=-3.71,y=13.15, label = "Nouna", fontface = "bold", color = "gray80", size=5.5) + 
+  # geom_segment(data=nouna_lab_line, 
+  #              aes(x=x1, xend=x2, y=y1, yend=y2), color = "gray60", lwd=0.8, arrow=arrow(angle=30,length=unit(2,"mm"),ends="last",type="open")) +
+  geom_sf(data=burkina_adm2_Kossi, fill=NA, color="black",lwd=0.5) +
+  geom_sf(data=burkina_adm1, fill=NA, color="black",lwd=0.5) +
+  geom_point(data=dmap,
+             aes(x = longitude, y = latitude, color=tx, shape = censused_visit),
+          size=1.2, alpha=0.9) +
+  coord_sf(crs = 4326,
+           xlim = c(-5, -3.15), ylim = c(12.25, 14),
+           expand = FALSE) +
+  labs(color = "",
+       shape = ""
+       )+
+  scale_shape_manual(values = c(1, 16)) +
+  scale_alpha_discrete(range = c(0.4, 0.9)) + 
+  scale_fill_manual(values=c("#E69F00", "#56B4E9")) + 
+  scale_colour_manual(values=c("#E69F00", "#56B4E9"))+
+  annotation_scale(location = "br", width_hint = 0.3, pad_y=unit(0.1,"cm")) +
+  annotation_north_arrow(location = "br", which_north = "true", 
+        pad_x = unit(0.05, "in"), pad_y = unit(0.2, "in"),
+        height=unit(0.75,"cm"), width=unit(0.75,"cm"),
+        style = north_arrow_fancy_orienteering
+        ) +
+    labs(x="Longitude",y="Latitude") +
+    guides(color=guide_legend(reverse = FALSE, title="", override.aes = list(size=4)),
+           shape=guide_legend(reverse = FALSE, title="", override.aes = list(size=4)))  +
+    theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.major = element_blank(),
+        legend.text=element_text(size=8),
+        legend.title = element_text(size=8))
+```
+
+```{r, fig.width=10, fig.height=6, message = FALSE, warning=FALSE}
+patchwork_composite_fig1 <- nouna_map + 
+    inset_element(burkina_map,
+                  left = unit(0.0, "npc"), top = unit(1.4, "npc"),
+                  bottom = unit(0.22, "npc"), right = unit(0.48, "npc"),
+                  ignore_tag = TRUE
+    )
+```
+
+```{r, message = FALSE, warning=FALSE}
+patchwork_composite_fig1
+```
+
+
+```{r, message = FALSE, warning=FALSE}
+ggsave(filename = here("output","figures","Figure-1-CHAT-cluster-map.pdf"), 
+       patchwork_composite_fig1,
+       device = "pdf", 
+       width = 250,
+       height = 160,
+       units = "mm")
+
+ggsave(filename = here("output","figures","Figure-1-CHAT-cluster-map.jpg"), 
+       patchwork_composite_fig1,
+       device = "jpeg", 
+       width = 250,
+       height = 160,
+       units = "mm")
+```
+

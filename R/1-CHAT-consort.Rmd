@@ -1,0 +1,589 @@
+---
+title: "CHAT Trial Primary Analysis - CONSORT Participant Flow"
+subtitle: "CONFIDENTIAL. DO NOT DISTRIBUTE."
+author: "Prepared by: Joyce Hu, and Benjamin Arnold<br><br>F.I. Proctor Foundation, University of California, San Francisco"
+date: "Data Cutoff: 2023-03-08. Report Updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+        rmarkdown::render(inputFile, 
+                          encoding   = encoding, 
+                          output_dir = "../output"
+                          )})
+---
+
+# Summary
+
+Track participant flow in the CHAT trial.
+
+Summarize patient numbers by treatment group and phase to include in a CONSORT flow diagram.
+
+
+# Configuration
+
+```{r preamble, message = FALSE}
+#---------------------------------
+# source the project's configuration
+# file
+#---------------------------------
+library(here)
+source(here("R","CHAT-primary-Config.R"))
+options(knitr.kable.NA = '')
+```
+
+# Load the data
+
+Load the final population tracking dataset. This file was created by `0-CHAT-primary-data-processing.R`.
+
+```{r load the data, warning= FALSE, message = FALSE}
+#---------------------------------
+# load the preprocessed data
+#---------------------------------
+# precensus data
+precensus <- read_rds(here("data","CHAT_precensus_public.rds"))
+
+dch <- read_rds(here("data","CHAT_child_census_public.rds"))
+
+dch_wide <- read_rds(here("data","CHAT_child_census_wide_public.rds"))
+
+# child-phase level data
+dchp <- read_rds(here("data","CHAT_child_phase_public.rds"))
+  
+# cluster-phase level summaries
+dclp <- read_rds(here("data","CHAT_cluster_phase_public.rds"))
+
+# cluster-level summaries
+dcl <- read_rds(here("data","CHAT_cluster_public.rds"))
+
+# Treatment allocation
+tx_alloc <- read_rds(here("data","CHAT_tx_alloc_public.rds"))
+```
+
+```{r process the data, warning= FALSE, message = FALSE}
+#------------------------------
+# convert person-days into
+# person-years for convenience
+#------------------------------
+dchp2 <- dchp %>%
+  mutate(person_years = person_days/365.25)
+
+dclp2 <- dclp %>%
+  mutate(person_years = person_days/365.25)
+
+dcl2 <- dcl %>%
+  mutate(person_years = person_days/365.25)
+
+#------------------------------
+# for the cluster-level data
+# drop clusters with no person
+# time for the efficacy and
+# futility analyses
+#------------------------------
+dclp3 <- dclp2 %>%
+  filter(person_years > 0)
+
+dcl3 <- dcl2 %>%
+  filter(person_years > 0)
+
+```
+
+```{r, warning= FALSE, message = FALSE}
+dchp_long <- dch_wide %>%
+  select(clusterid_public,tx, childid_public, contains("vital"), contains("agem")) %>%
+  distinct() %>%
+  left_join(
+    dcl2 %>% select(clusterid_public, contains("cl_meas")) %>%
+    mutate_if(is.numeric, ~replace_na(., 0))
+  ) %>%
+  mutate(
+    vital6 = ifelse(vital0 == "alive" & agem0 %in% 1:59 & cl_meas6 == 1 & is.na(vital6), "missing", vital6),
+    vital12 = ifelse(vital6 == "alive" & agem6 %in% 1:59 &cl_meas12 == 1 & is.na(vital12), "missing", vital12),
+    vital18 = ifelse(vital12 == "alive" & agem12 %in% 1:59 &cl_meas18 == 1 & is.na(vital18), "missing", vital18),
+    vital24 = ifelse(vital18 == "alive" & agem18 %in% 1:59 &cl_meas24 == 1 & is.na(vital24), "missing", vital24),
+    vital30 = ifelse(vital24 == "alive" & agem24 %in% 1:59 &cl_meas30 == 1 & is.na(vital30), "missing", vital30),
+    vital36 = ifelse(vital30 == "alive" & agem30 %in% 1:59 &cl_meas36 == 1 & is.na(vital36), "missing", vital36),
+    vital6 = ifelse(vital0 == "alive" & agem0 %in% 1:59 & cl_meas6 == 0 & is.na(vital6), "cl_notcensused", vital6),
+    vital12 = ifelse(vital6 == "alive" & agem6 %in% 1:59 & cl_meas12 == 0 & is.na(vital12), "cl_notcensused", vital12),
+    vital18 = ifelse(vital12 == "alive" & agem12 %in% 1:59 & cl_meas18 == 0 & is.na(vital18), "cl_notcensused", vital18),
+    vital24 = ifelse(vital18 == "alive" & agem18 %in% 1:59 & cl_meas24 == 0 & is.na(vital24), "cl_notcensused", vital24),
+    vital30 = ifelse(vital24 == "alive" & agem24 %in% 1:59 & cl_meas30 == 0 & is.na(vital30), "cl_notcensused", vital30),
+    vital36 = ifelse(vital30 == "alive" & agem30 %in% 1:59 & cl_meas36 == 0 & is.na(vital36), "cl_notcensused", vital36)
+  ) %>%
+  select(-contains("cl_meas")) %>%
+  pivot_longer(
+    cols = starts_with("vital"),
+    names_to = "timepoint",
+    values_to = "vital",
+    names_prefix = "vital"
+  ) %>% 
+  pivot_longer(
+    cols = starts_with("agem"),
+    names_to = "timepoint_agem",
+    values_to = "agem",
+    names_prefix = "agem"
+  ) %>%
+  filter(timepoint == timepoint_agem)%>%
+  select(-timepoint_agem)
+```
+
+# CONSORT flow
+
+Summarize the number of clusters randomized, and the number that contributed to each study phase. The total number of clusters contributing to each phase is lower than the number randomized because of instability in Burkina Faso that prevented field teams from safely visiting a portion of the study region.
+
+## Census Round
+
+```{r, warning= FALSE, message = FALSE}
+
+# randomization dataset
+consort_tx <- tx_alloc %>% 
+  group_by(tx) %>% 
+  summarize(nrandomized = n()) %>% 
+  adorn_totals("row")
+
+# precensus
+consort_precensus <- precensus %>% 
+  group_by(tx) %>% 
+  summarize(n_precensused_cl = n_distinct(clusterid_public),
+            n_precensused_ch = sum(childUnder5)) %>% 
+  adorn_totals("row")
+
+# clusters in each round of census
+consort_census_cl <- tx_alloc %>%
+  left_join(dcl2 %>% select(- tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  group_by(tx) %>% 
+  select(tx,starts_with("cl_meas")) %>% 
+  summarize_all(function(x) {
+    sum(x)
+  }) %>%
+  adorn_totals("row") %>%
+  rename_with(~ gsub("cl_meas", "cl_censused_", .x), everything())
+
+# clusters lost to follow up in each round of census
+consort_census_clltfu <- tx_alloc %>%
+  left_join(dcl2 %>% select(- tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  group_by(tx) %>% 
+  select(tx,starts_with("cl_meas")) %>% 
+  summarise(
+    cl_ltfu_0 = paste0(
+      sum(1 - cl_meas0), 
+      " (", round(sum(1 - cl_meas0) / n() * 100, 1), "%)"
+    ),
+    cl_ltfu_6 = paste0(
+      sum(cl_meas0 == 1 & cl_meas6 == 0), 
+      " (", round(sum(cl_meas0 == 1 & cl_meas6 == 0) / sum(cl_meas0 == 1) * 100, 1), "%)"
+    ),
+    cl_ltfu_12 = paste0(
+      sum(cl_meas6 == 1 & cl_meas12 == 0), 
+      " (", round(sum(cl_meas6 == 1 & cl_meas12 == 0) / sum(cl_meas6 == 1) * 100, 1), "%)"
+    ),
+    cl_ltfu_18 = paste0(
+      sum(cl_meas12 == 1 & cl_meas18 == 0), 
+      " (", round(sum(cl_meas12 == 1 & cl_meas18 == 0) / sum(cl_meas12 == 1) * 100, 1), "%)"
+    ),
+    cl_ltfu_24 = paste0(
+      sum(cl_meas18 == 1 & cl_meas24 == 0), 
+      " (", round(sum(cl_meas18 == 1 & cl_meas24 == 0) / sum(cl_meas18 == 1) * 100, 1), "%)"
+    ),
+    cl_ltfu_30 = paste0(
+      sum(cl_meas24 == 1 & cl_meas30 == 0), 
+      " (", round(sum(cl_meas24 == 1 & cl_meas30 == 0) / sum(cl_meas24 == 1) * 100, 1), "%)"
+    ),
+    cl_ltfu_36 = paste0(
+      sum(cl_meas30 == 1 & cl_meas36 == 0), 
+      " (", round(sum(cl_meas30 == 1 & cl_meas36 == 0) / sum(cl_meas30 == 1) * 100, 1), "%)"
+    )
+  ) %>%
+  bind_rows(
+     tx_alloc %>%
+      left_join(dcl2 %>% select( - tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      select(tx,starts_with("cl_meas")) %>% 
+      summarise(
+        cl_ltfu_0 = paste0(
+          sum(1 - cl_meas0), 
+          " (", round(sum(1 - cl_meas0) / n() * 100, 1), "%)"
+        ),
+        cl_ltfu_6 = paste0(
+          sum(cl_meas0 == 1 & cl_meas6 == 0), 
+          " (", round(sum(cl_meas0 == 1 & cl_meas6 == 0) / sum(cl_meas0 == 1) * 100, 1), "%)"
+        ),
+        cl_ltfu_12 = paste0(
+          sum(cl_meas6 == 1 & cl_meas12 == 0), 
+          " (", round(sum(cl_meas6 == 1 & cl_meas12 == 0) / sum(cl_meas6 == 1) * 100, 1), "%)"
+        ),
+        cl_ltfu_18 = paste0(
+          sum(cl_meas12 == 1 & cl_meas18 == 0), 
+          " (", round(sum(cl_meas12 == 1 & cl_meas18 == 0) / sum(cl_meas12 == 1) * 100, 1), "%)"
+        ),
+        cl_ltfu_24 = paste0(
+          sum(cl_meas18 == 1 & cl_meas24 == 0), 
+          " (", round(sum(cl_meas18 == 1 & cl_meas24 == 0) / sum(cl_meas18 == 1) * 100, 1), "%)"
+        ),
+        cl_ltfu_30 = paste0(
+          sum(cl_meas24 == 1 & cl_meas30 == 0), 
+          " (", round(sum(cl_meas24 == 1 & cl_meas30 == 0) / sum(cl_meas24 == 1) * 100, 1), "%)"
+        ),
+        cl_ltfu_36 = paste0(
+          sum(cl_meas30 == 1 & cl_meas36 == 0), 
+          " (", round(sum(cl_meas30 == 1 & cl_meas36 == 0) / sum(cl_meas30 == 1) * 100, 1), "%)"
+        )
+      )  %>%
+      mutate(tx = "Total")
+  )
+
+# children in each round of census
+consort_census_ch <- dchp_long %>%
+  # exclude dead child in baseline - never been in study
+  filter(! (vital %in% c("dead", "moved","unknown", "missing", "cl_notcensused") & timepoint == "0"))%>%
+  group_by(timepoint, tx) %>%
+  summarise(
+    ch_censused = sum(vital %in% c("alive","dead") & agem %in% 1:59, na.rm = TRUE),
+    ch_moved_unknown = sum(vital %in% c("moved","unknown", "missing"), na.rm = TRUE),
+    ch_cl_notcensused = sum(vital %in% c("cl_notcensused"), na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(timepoint = factor(gsub("vital", "", timepoint),
+                         c("0", "6", "12", "18", "24", "30", "36"))) %>%
+  arrange(timepoint) %>%
+  pivot_wider(
+    names_from = timepoint,
+    values_from = c(ch_censused, ch_moved_unknown, ch_cl_notcensused),
+    names_glue = "{.value}_{timepoint}"
+  ) %>% 
+  adorn_totals("row")
+
+
+consort_census <- consort_tx %>%
+  full_join(consort_precensus) %>%
+  full_join(consort_census_cl) %>%
+  full_join(consort_census_clltfu) %>%
+  full_join(consort_census_ch) %>%
+  select(
+    tx, nrandomized,
+    n_precensused_cl, n_precensused_ch, 
+    cl_censused_0, cl_ltfu_0, ch_censused_0, ch_moved_unknown_0, ch_cl_notcensused_0, 
+    cl_censused_6, cl_ltfu_6, ch_censused_6, ch_moved_unknown_6, ch_cl_notcensused_6, 
+    cl_censused_12, cl_ltfu_12, ch_censused_12, ch_moved_unknown_12, ch_cl_notcensused_12, 
+    cl_censused_18, cl_ltfu_18, ch_censused_18, ch_moved_unknown_18, ch_cl_notcensused_18, 
+    cl_censused_24, cl_ltfu_24, ch_censused_24, ch_moved_unknown_24, ch_cl_notcensused_24, 
+    cl_censused_30, cl_ltfu_30, ch_censused_30, ch_moved_unknown_30, ch_cl_notcensused_30, 
+    cl_censused_36, cl_ltfu_36, ch_censused_36, ch_moved_unknown_36, ch_cl_notcensused_36
+  ) %>%
+  # transpose
+  t() %>% 
+  # convert 1st row (tx) to colnames 
+  row_to_names(1) %>%
+  # convert matrix output of transpose to df 
+  as.data.frame() %>% 
+  # rename Total appropriately
+  rename(Overall = Total) %>% 
+  # convert rownames to columns 
+  # necessary because rownames would otherwise need to be unique
+  # set column name to empty string
+  rownames_to_column(" ") %>% 
+  # rename variables for presentation
+  mutate(` ` = case_when(` ` == "nrandomized" ~ "No. of clusters",
+                         ` ` == "n_precensused_cl" ~ "No. of clusters",
+                         ` ` == "n_precensused_ch" ~ "No. of children",
+                         str_detect(` `, "cl_censused") ~ "Clusters censused",
+                         str_detect(` `, "cl_ltfu") ~ "Clusters lost to follow-up",
+                         str_detect(` `, "ch_censused") ~ "Children censused",
+                         str_detect(` `, "ch_moved_unknown") ~ "Children moved/unknown",
+                         str_detect(` `, "ch_cl_notcensused") ~ "Children lost to follow-up due to cluster lost"
+                         )
+         ) 
+
+consort_census %>% knitr::kable(format = "html", digits = 0, format.args = list(big.mark = ",")) %>%
+            kable_styling(bootstrap_options = "striped") %>%
+            pack_rows("Randomization", 1, 1) %>%   
+            pack_rows("Precensus", 2, 3) %>%   
+            pack_rows("Census 0", 4, 8) %>%
+            pack_rows("Census 6", 9, 13) %>% 
+            pack_rows("Census 12", 14, 18) %>% 
+            pack_rows("Census 18", 19, 23) %>% 
+            pack_rows("Census 24", 24, 28) %>% 
+            pack_rows("Census 30", 29, 33) %>% 
+            pack_rows("Census 36", 34, 38) 
+```
+
+
+## Phase
+
+```{r consort flow Phase, warning= FALSE, message = FALSE}
+#------------------------------
+# summarize datasets to arrive to consort variables
+#------------------------------
+
+# randomization dataset
+consort_tx <- tx_alloc %>% 
+  group_by(tx) %>% 
+  summarize(nrandomized = n()) %>% 
+  adorn_totals("row")
+
+# randomization dataset
+consort_precensus <- precensus %>% 
+  group_by(tx) %>% 
+  summarize(n_precensused_cl = n_distinct(clusterid_public),
+            n_precensused_ch = sum(childUnder5)) %>% 
+  adorn_totals("row")
+
+# phase 0 to 6  
+consort_0to6 <- dclp3 %>%
+  filter(phase == "0to6") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_0to6 = n_distinct(clusterid_public),
+            ch_contribute_0to6 = sum(natrisk),
+            pt_years_0to6 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# phase 6 to 12
+consort_6to12 <- dclp3 %>%
+  filter(phase == "6to12") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_6to12 = n_distinct(clusterid_public),
+            ch_contribute_6to12 = sum(natrisk),
+            pt_years_6to12 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# phase 12 to 18
+consort_12to18 <- dclp3 %>%
+  filter(phase == "12to18") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_12to18 = n_distinct(clusterid_public),
+            ch_contribute_12to18 = sum(natrisk),
+            pt_years_12to18 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# phase 18 to 24
+consort_18to24 <- dclp3 %>%
+  filter(phase == "18to24") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_18to24 = n_distinct(clusterid_public),
+            ch_contribute_18to24 = sum(natrisk),
+            pt_years_18to24 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# phase 24 to 30
+consort_24to30 <- dclp3 %>%
+  filter(phase == "24to30") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_24to30 = n_distinct(clusterid_public),
+            ch_contribute_24to30 = sum(natrisk),
+            pt_years_24to30 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# phase 30 to 36
+consort_30to36 <- dclp3 %>%
+  filter(phase == "30to36") %>% 
+  group_by(tx) %>% 
+  summarise(cl_contribute_30to36 = n_distinct(clusterid_public),
+            ch_contribute_30to36 = sum(natrisk),
+            pt_years_30to36 = round(sum(person_years), digits = 0)) %>% 
+  adorn_totals("row")
+
+# all phases (0 to 12)
+consort_0to36 <- dclp3 %>%
+  group_by(tx) %>%
+  summarise(cl_contribute = n_distinct(clusterid_public),
+            pt_years = round(sum(person_years), digits = 0)) %>% 
+  inner_join(dchp2 %>% 
+    filter(person_days > 0) %>%
+    group_by(tx) %>%
+    summarise(ch_contribute = n_distinct(childid_public))
+    ) %>%
+  select(tx, cl_contribute, pt_years, ch_contribute) %>%
+  adorn_totals("row")
+
+consort_0to36_age <- dchp2 %>% 
+  filter(person_days > 0) %>%
+  group_by(childid_public) %>%
+  mutate(phase_numeric = case_when(
+        phase == "0to6" ~ 1,
+        phase == "6to12" ~ 2,
+        phase == "12to18" ~ 3,
+        phase == "18to24" ~ 4,
+        phase == "24to30" ~ 5,
+        phase == "30to36" ~ 6
+    )) %>%
+  filter(phase_numeric == min(phase_numeric)) %>%
+  ungroup() %>%
+  group_by(tx) %>%
+  summarise(ch_age = paste0(round(mean(age_months), 1),
+                            " (", round(sd(age_months),1),
+                             ")"))%>%
+  bind_rows(
+    dchp2 %>% 
+      filter(person_days > 0) %>%
+      group_by(childid_public) %>%
+      mutate(phase_numeric = case_when(
+            phase == "0to6" ~ 1,
+            phase == "6to12" ~ 2,
+            phase == "12to18" ~ 3,
+            phase == "18to24" ~ 4,
+            phase == "24to30" ~ 5,
+            phase == "30to36" ~ 6
+        )) %>%
+      filter(phase_numeric == min(phase_numeric)) %>%
+      ungroup() %>%
+      summarise(ch_age = paste0(round(mean(age_months), 1),
+                                " (", round(sd(age_months),1),
+                                 ")"))%>%
+      mutate(tx = "Total")
+  )
+
+consort_py_0to36 <- dcl3 %>%
+  group_by(tx) %>%
+  summarise(mean_py = paste0(round(mean(person_years),1), 
+                             " (", round(sd(person_years),1),
+                             ")"),
+            median_py = paste0(round(median(person_years),1),
+                            " (", round(quantile(person_years, 0.25),1),
+                            ", ", round(quantile(person_years, 0.75),1),
+                            ")")
+            ) %>%
+  bind_rows(
+    dcl3 %>%
+      summarise(mean_py = paste0(round(mean(person_years),1), 
+                             " (", round(sd(person_years),1),
+                             ")"),
+                median_py = paste0(round(median(person_years),1),
+                            " (", round(quantile(person_years, 0.25),1),
+                            ", ", round(quantile(person_years, 0.75),1),
+                            ")")
+            ) %>%
+      mutate(tx = "Total")
+      
+  )
+
+consort_ltfu_0to36 <- tx_alloc %>%
+  left_join(dcl3 %>% select(- tx), by = c("clusterid_public"="clusterid_public")) %>%
+  left_join(precensus %>% select(- tx), by = "clusterid_public") %>%
+  filter(is.na(person_years) | person_years == 0) %>%
+  group_by(tx) %>%
+  summarise(N_ltfu_cl = n(),
+            N_ltfu_ch = sum(childUnder5, na.rm = T)) %>%
+  adorn_totals("row")
+
+consort_ltfu_0to36_byphase <- tx_alloc %>%
+  left_join(dcl3 %>% select(- tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  group_by(tx) %>% 
+  select(tx,starts_with("cl_meas")) %>% 
+  summarize_all(function(x) {
+    s <- sum(1 - x)
+    m <- round(100 * mean(1 - x), 1)
+    paste(s, "(", m, "%)", sep = "")
+  }) %>%
+  bind_rows(
+    tx_alloc %>%
+  left_join(dcl3 %>% select(- tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  select(starts_with("cl_meas")) %>% 
+  summarize_all(function(x) {
+    s <- sum(1 - x)
+    m <- round(100 * mean(1 - x), 1)
+    paste(s, " (", m, "%)", sep = "")
+  }) %>%
+    mutate(tx = "Total")
+  )
+
+
+consort_nevercensus_0to36 <- tx_alloc %>%
+  left_join(dcl2 %>% select(- tx, -csps_distance), by = c("clusterid_public"="clusterid_public")) %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  group_by(tx) %>% 
+  select(tx,starts_with("cl_meas")) %>% 
+  summarize(N_ncensus_cl = sum(cl_meas0 == 0 & cl_meas6 == 0 & cl_meas12 == 0 & cl_meas18 == 0 & 
+                cl_meas24 == 0 & cl_meas30 == 0 & cl_meas36 == 0 )) %>%
+  adorn_totals("row")
+
+#------------------------------
+# join all consort tables, by tx
+# then manipulate to arrive to final format
+#------------------------------
+consort <- consort_tx %>% 
+  full_join(consort_precensus) %>%
+  full_join(consort_0to6) %>% 
+  full_join(consort_6to12) %>%
+  full_join(consort_12to18) %>%
+  full_join(consort_18to24) %>%
+  full_join(consort_24to30) %>%
+  full_join(consort_30to36) %>%
+  full_join(consort_0to36) %>%
+  full_join(consort_0to36_age) %>%
+  full_join(consort_py_0to36) %>%
+  full_join(consort_nevercensus_0to36) %>%
+  full_join(consort_ltfu_0to36) %>%
+  full_join(consort_ltfu_0to36_byphase) 
+
+consort %<>% 
+  # transpose
+  t() %>% 
+  # convert 1st row (tx) to colnames 
+  row_to_names(1) %>%
+  # convert matrix output of transpose to df 
+  as.data.frame() %>% 
+  # rename Total appropriately
+  rename(Overall = Total) %>% 
+  # convert rownames to columns 
+  # necessary because rownames would otherwise need to be unique
+  # set column name to empty string
+  rownames_to_column(" ") %>% 
+  # rename variables for presentation
+  mutate(` ` = case_when(` ` == "nrandomized" ~ "No. of clusters",
+                         ` ` == "n_precensused_cl" ~ "No. of clusters",
+                         ` ` == "n_precensused_ch" ~ "No. of children",
+                         str_detect(` `, "cl_contribute") ~ "Clusters contributing",
+                         str_detect(` `, "pt_years") ~ "Person years at risk",
+                         str_detect(` `, "ch_contribute") ~ "Children contributing",
+                         str_detect(` `, "ch_age") ~ "Children's age (SD)",
+                         ` ` == "pt_years" ~ "Person-years",
+                         ` ` == "mean_py" ~ "Mean person-years per cluster (SD)",
+                         ` ` == "median_py" ~ "Median person-years per cluster (Q1, Q3)",
+                         ` ` == "N_ltfu_cl" ~ "No. of clusters (not contributing to analysis)",
+                         ` ` == "N_ltfu_ch" ~ "No. of children",
+                         ` ` == "N_ncensus_cl"~ "No. of clusters never reached",
+                         str_detect(` `, "cl_meas") ~ str_replace(` `, "cl_meas", "Clusters lost in CHAT")
+                         )
+         ) 
+# %>%
+#   # format cols numeric to help with printing
+#   mutate(Placebo = as.numeric(Placebo),
+#          Azithromycin = as.numeric(Azithromycin),
+#          Overall = as.numeric(Overall))
+
+#------------------------------
+# generate table
+#------------------------------
+
+consort %>% knitr::kable(format = "html", digits = 0, format.args = list(big.mark = ",")) %>%
+            kable_styling(bootstrap_options = "striped") %>%
+            pack_rows("Randomization", 1, 1) %>%   
+            pack_rows("Precensus", 2, 3) %>%   
+            pack_rows("Phase 0-6", 4, 6) %>%
+            pack_rows("Phase 6-12", 7, 9) %>% 
+            pack_rows("Phase 12-18", 10, 12) %>% 
+            pack_rows("Phase 18-24", 13, 15) %>% 
+            pack_rows("Phase 24-30", 16, 18) %>% 
+            pack_rows("Phase 30-36", 19, 21) %>% 
+            pack_rows("Primary analysis, Phases 0-36", 22, 27) %>%
+            pack_rows("Primary analysis, Lost to follow-up", 28, 37)
+
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+
