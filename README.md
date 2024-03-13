@@ -54,7 +54,7 @@ For example, in the location on your computer where you would like to clone the 
 
 2.  Recreate the exact package environment using the `renv` package.
 
-You can do this by opening the R project file ([CHAT-primary.Rproj](https://github.com/proctor-ucsf/CHAT-primary/blob/main/CHAT-primary.Rproj)) in RStudio, loading the `renv` package, and typing `renv::restore()` to restore the package environment from the projects [renv.lock](https://github.com/proctor-ucsf/CHAT-primary/blob/main/renv.lock) file.
+You can do this by opening the R project file ([CHAT-primary-analysis.Rproj](https://github.com/proctor-ucsf/CHAT-primary/blob/main/CHAT-primary-analysis.Rproj)) in RStudio, loading the `renv` package, and typing `renv::restore()` to restore the package environment from the projects [renv.lock](https://github.com/proctor-ucsf/CHAT-primary/blob/main/renv.lock) file.
 
 3.  All of the analysis scripts should run smoothly (scripts `1-xx.Rmd` to `10-xx.Rmd`) EXCEPT for `7-CHAT-Map.Rmd`, which relies on confidential GPS information. All other scripts will run smoothly. They will save HTML file output in the /output directory.
 
