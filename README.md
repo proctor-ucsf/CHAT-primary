@@ -18,7 +18,7 @@ Should you have any questions about the files in this repository, please contact
 
 This GitHub repository is mirrored on the Open Science Framework (OSF). The OSF project page includes additional study-related resources, including the compiled HTML computational notebooks created from the `.Rmd` files, and the final analysis datasets.
 
-<https://osf.io/b3xwd/>
+<https://osf.io/4eg83/>
 
 ## Software Information
 
